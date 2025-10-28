@@ -1,0 +1,824 @@
+Product Requirements Document (PRD) — WhatsApp CRM Backend (Java, Spring Boot, PostgreSQL)
+
+Style: Notion-like, developer-focused, ready for implementation in Cursor IDE
+Scope (v1): Backend only — monolithic Spring Boot app with internal adapter support for multiple WhatsApp providers (primary: Meta WhatsApp Cloud API). Single-tenant (single client) but designed so provider adapters can be added later. No message-queue; bulk send will run inside app (with damage-control guidance). Auth via JWT (username/password). Deployable to AWS Free Tier using Docker + EC2 + optional RDS.
+
+1. Objective & Goals
+
+Primary objective: Build a production-ready backend service that:
+
+Integrates with Meta WhatsApp Cloud API (and is architected to add other providers later via an adapter pattern).
+
+Receives incoming messages and events via WhatsApp webhook.
+
+Provides a CRM API (Contacts, Conversations, Campaigns, Message Templates, Message History).
+
+Allows CSV upload for bulk sends (CSV can contain phone, name, templateId, variables, schedule time, tags).
+
+Supports message templates (text, media, interactive buttons) and automated reply flows.
+
+Simple user auth (JWT) with roles (Admin, Manager, Agent).
+
+Deployed with Docker on AWS Free Tier (EC2 + RDS or container-hosting on EC2).
+
+
+Template approval workflow (we’ll allow sending without Meta approval).
+
+2. High-level Architecture
+
+Components (single monolith JAR):
+
+web (Controllers / REST endpoints)
+
+service (Business logic)
+
+integration (WhatsApp provider adapters + HTTP clients)
+
+persistence (JPA Entities + Repositories)
+
+dto (request/response DTOs + mappers)
+
+security (JWT auth, filters)
+
+util (validation, CSV parser, template engine)
+
+jobs (scheduled tasks for scheduled sends — lightweight in-app scheduler)
+
+Design principles:
+
+SOLID principles, separation of concerns (Controller -> Service -> Repository).
+
+DTOs for all controller I/O.
+
+Adapter pattern for providers (WhatsAppProvider interface, MetaWhatsAppProvider implementation).
+
+Clear package structure to match Cursor IDE project layout.
+
+Use Spring Boot (latest stable), Spring Data JPA, PostgreSQL driver, Spring Security (JWT), Lombok, OpenAPI/Swagger.
+
+Sequence (simplified):
+
+Client calls /api/v1/campaigns or /sendMessage.
+
+Controller validates request → Service orchestrates.
+
+Service uses ProviderAdapter to send message to Meta Cloud API.
+
+Response persisted to messages table and returned.
+
+3. Cursor IDE Project Layout (recommended)
+/whatsapp-crm-backend
+ ├─ src/main/java/com/yourcompany/whatsappcrm
+ │   ├─ config
+ │   ├─ controller
+ │   ├─ dto
+ │   ├─ entity
+ │   ├─ exception
+ │   ├─ integration
+ │   │   ├─ provider    # adapters
+ │   │   │   ├─ WhatsAppProvider.java
+ │   │   │   └─ MetaWhatsAppProvider.java
+ │   ├─ mapper
+ │   ├─ repository
+ │   ├─ security
+ │   ├─ service
+ │   ├─ util
+ │   └─ WhatsappCrmApplication.java
+ ├─ src/main/resources
+ │   ├─ application.yml
+ └─ Dockerfile
+
+
+Cursor IDE notes:
+
+Create run profile pointing to WhatsappCrmApplication.
+
+Add dev-run profiles in application.yml for local and aws.
+
+Add postman and openapi folders for API collection and schema.
+
+4. Tech Stack & Libraries
+
+Java 17+ (LTS)
+
+Spring Boot 3.x
+
+Spring Data JPA (Hibernate)
+
+PostgreSQL
+
+Spring Security + JWT (jjwt or spring-security-oauth2-jose)
+
+Lombok (optional)
+
+OpenAPI / Swagger (springdoc)
+
+Apache Commons CSV / OpenCSV (CSV parsing)
+
+RestTemplate for WhatsApp Cloud calls 
+
+
+
+Docker (for containerization)
+
+5. Database Schema (PostgreSQL)
+
+Below are the main tables and key columns. Use UUID primary keys for portability.
+
+Entities (DDL-style summaries)
+-- users
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username VARCHAR(100) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role VARCHAR(20) NOT NULL, -- ADMIN / MANAGER / AGENT
+  created_at timestamptz DEFAULT now()
+);
+
+-- contacts
+CREATE TABLE contacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone VARCHAR(20) NOT NULL,
+  name VARCHAR(255),
+  tags TEXT[],
+  metadata JSONB,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- templates
+CREATE TABLE templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(150) NOT NULL,
+  provider_template_id VARCHAR(200), -- optional external ID
+  type VARCHAR(50) NOT NULL, -- TEXT, MEDIA, INTERACTIVE
+  content JSONB NOT NULL, -- structure varies by type; stores placeholders, media URLs, buttons
+  created_by UUID REFERENCES users(id),
+  created_at timestamptz DEFAULT now(),
+  is_active boolean DEFAULT true
+);
+
+-- campaigns (bulk send jobs)
+CREATE TABLE campaigns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  template_id UUID REFERENCES templates(id),
+  uploaded_by UUID REFERENCES users(id),
+  csv_metadata JSONB, -- summary of CSV upload
+  status VARCHAR(50) DEFAULT 'PENDING', -- PENDING, RUNNING, COMPLETED, FAILED
+  scheduled_at timestamptz,
+  created_at timestamptz DEFAULT now()
+);
+
+-- messages
+CREATE TABLE messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id UUID REFERENCES campaigns(id),
+  contact_id UUID REFERENCES contacts(id),
+  provider_message_id VARCHAR(255), -- provider response id
+  provider VARCHAR(50), -- META, GUPSHUP, etc
+  direction VARCHAR(10) NOT NULL, -- OUTGOING / INCOMING
+  status VARCHAR(50), -- SENT, DELIVERED, FAILED, READ, etc
+  payload JSONB, -- original message payload sent
+  response JSONB, -- provider response
+  error TEXT,
+  created_at timestamptz DEFAULT now()
+);
+
+-- webhook_events (incoming)
+CREATE TABLE webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider VARCHAR(50),
+  event_type VARCHAR(100),
+  payload JSONB,
+  processed boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+
+Indexes:
+
+contacts(phone) UNIQUE index.
+
+messages(campaign_id), messages(contact_id) for query performance.
+
+webhook_events(processed, created_at) for polling.
+
+6. Domain Models (entities brief)
+
+User (id, username, passwordHash, role)
+
+Contact (id, phone, name, tags, metadata)
+
+Template (id, name, type, content JSON)
+
+Campaign (id, name, templateId, scheduledAt, status)
+
+Message (id, campaignId, contactId, providerMessageId, status)
+
+WebhookEvent (id, provider, eventType, payload, processed)
+
+7. Key Packages & Classes (Controller → Service → Repository)
+
+Examples:
+
+controller.auth.AuthController
+
+/api/v1/auth/login → returns JWT
+
+controller.contacts.ContactController
+
+CRUD endpoints for contacts
+
+controller.template.TemplateController
+
+create/update/list templates
+
+controller.campaign.CampaignController
+
+upload CSV, start campaign, campaign status
+
+controller.webhook.WebhookController
+
+/api/v1/webhooks/whatsapp POST for Meta Cloud webhook
+
+service.auth.AuthService
+
+validate credentials, generate JWT
+
+service.contacts.ContactService
+
+upsert contact, find by phone
+
+service.template.TemplateService
+
+integration.provider.WhatsAppProvider (interface)
+
+SendResponse sendMessage(MessagePayload)
+
+SendResponse sendMedia(...)
+
+void handleWebhook(JsonNode payload)
+
+integration.provider.MetaWhatsAppProvider (implements)
+
+uses WebClient to call Meta Cloud API.
+
+8. API Specification (selected endpoints)
+
+All endpoints prefixed with /api/v1. Use JSON. DTOs used for input validation.
+
+Auth
+
+POST /api/v1/auth/login
+
+Request:
+
+{
+  "username": "admin",
+  "password": "secret"
+}
+
+
+Response (200):
+
+{
+  "accessToken": "eyJhbGciOiJIUzUxMiJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "user": {
+    "id": "uuid",
+    "username": "admin",
+    "role": "ADMIN"
+  }
+}
+
+
+Contacts
+
+POST /api/v1/contacts
+
+Request:
+
+{
+  "phone": "+919876543210",
+  "name": "Rahul",
+  "tags": ["lead", "premium"],
+  "metadata": {"city":"Jodhpur"}
+}
+
+
+Response:
+
+{
+  "id": "uuid",
+  "phone": "+919876543210",
+  "name": "Rahul",
+  "tags": ["lead","premium"]
+}
+
+
+Templates
+
+POST /api/v1/templates
+
+Request:
+
+{
+  "name": "promo_offer_1",
+  "type": "INTERACTIVE",
+  "content": {
+    "text": "Hello {{name}}, enjoy {{discount}} off!",
+    "placeholders": ["name","discount"],
+    "interactive": {
+      "buttons": [
+        {"type":"reply","id":"buy","title":"Buy Now"},
+        {"type":"url","id":"learn_more","title":"Learn More","url":"https://example.com"}
+      ]
+    }
+  }
+}
+
+
+Response:
+
+{
+  "id":"uuid",
+  "name":"promo_offer_1",
+  "type":"INTERACTIVE",
+  "createdAt":"2025-10-28T10:00:00Z"
+}
+
+
+Send Single Message
+
+POST /api/v1/messages/send
+
+Request:
+
+{
+  "to": "+919876543210",
+  "contactId": "optional-contact-uuid",
+  "templateId": "uuid-of-template",
+  "variables": {"name":"Rahul","discount":"20%"},
+  "provider": "META"  // optional, defaults to configured provider
+}
+
+
+Response:
+
+{
+  "messageId": "uuid",
+  "providerMessageId": "wamid.HBgL...",
+  "status": "SENT"
+}
+
+
+Upload CSV for Bulk Send
+
+POST /api/v1/campaigns/upload-csv (multipart/form-data)
+
+Form fields:
+
+file (CSV file)
+
+name (campaign name)
+
+templateId
+
+scheduledAt (optional ISO)
+
+uploadedBy
+
+CSV columns supported: phone,name,tags,templateId,scheduledAt,variables_json
+Example CSV row:
+
++919812345678,Anita,"lead,trial",template-uuid,2025-10-30T10:00:00Z,"{\"discount\":\"15%\"}"
+
+
+Response:
+
+{
+  "campaignId": "uuid",
+  "name": "October Promo",
+  "totalRows": 123,
+  "status": "PENDING"
+}
+
+
+Start Campaign (if not auto-run on upload)
+
+POST /api/v1/campaigns/{campaignId}/start
+
+Response:
+
+{
+  "campaignId": "uuid",
+  "status": "RUNNING"
+}
+
+
+Campaign Status
+
+GET /api/v1/campaigns/{campaignId}
+
+Response:
+
+{
+  "id": "uuid",
+  "name": "October Promo",
+  "totalRows": 123,
+  "sent": 100,
+  "failed": 5,
+  "status": "RUNNING"
+}
+
+
+Webhook (WhatsApp Cloud)
+
+POST /api/v1/webhooks/whatsapp
+
+Endpoint must handle Meta Cloud webhook verification (GET for verification) and POST for events.
+
+Sample POST payload (simplified):
+
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+      "changes": [
+        {
+          "value": {
+            "messages": [
+              {
+                "from": "919812345678",
+                "id": "wamid.HBgL...",
+                "timestamp": "1609459200",
+                "text": {"body":"Hello"},
+                "type":"text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+
+
+Response: 200 OK with { "status":"received" }.
+
+Webhook handler should:
+
+Persist event in webhook_events table.
+
+Map to contact (create or upsert).
+
+Persist incoming messages to messages table.
+
+Optionally trigger auto-reply flow via TemplateService.
+
+9. Request/Response DTO Examples (detailed)
+
+DTO: SendMessageRequest
+
+public class SendMessageRequest {
+  @NotBlank String to;
+  UUID contactId;
+  UUID templateId;
+  Map<String,String> variables = new HashMap<>();
+  String provider; // META
+}
+
+
+DTO: MessageResponse
+
+{
+  "messageId":"uuid",
+  "providerMessageId":"wamid.XYZ",
+  "status":"SENT",
+  "sentAt":"2025-10-28T10:03:00Z"
+}
+
+
+CSV Upload DTO (metadata in DB)
+
+{
+  "originalFilename":"october.csv",
+  "totalRows": 123,
+  "errorRows": 2,
+  "headers":["phone","name","tags","variables_json"]
+}
+
+10. WhatsApp Integration Details (Meta Cloud)
+
+Config
+
+application.yml:
+
+whatsapp:
+  providers:
+    meta:
+      apiBaseUrl: https://graph.facebook.com/v14.0
+      phoneNumberId: "<WHATSAPP_PHONE_NUMBER_ID>"
+      accessToken: "<LONG_LIVED_TOKEN>"
+
+
+MetaWhatsAppProvider responsibilities
+
+Build request payloads for text, media, interactive messages.
+
+Manage authorization header Bearer {accessToken}.
+
+Handle provider response and map to SendResponse.
+
+Expose methods:
+
+SendResponse sendTemplate(String phone, UUID templateId, Map<String,String> variables)
+
+SendResponse sendText(String phone, String text)
+
+void handleDeliveryReceipt(JsonNode payload)
+
+Rate limits & safety
+
+V1 will send messages sequentially per campaign. Because there is no queue, implement:
+
+Per-campaign throttling (configurable messagesPerSecond).
+
+Retry with exponential backoff for failed sends (max 3 attempts).
+
+Circuit breaker pattern to stop on repeated 429/5xx returns.
+
+11. CSV Upload & Bulk Send Flow
+
+User uploads CSV via /campaigns/upload-csv (multipart).
+
+Server does light validation (headers, max rows).
+
+Parse CSV rows into campaign_recipients in-memory or temp table (for large files better to persist).
+
+If scheduledAt present, scheduler picks campaign at that time. Otherwise either auto-start or wait for manual start.
+
+CampaignService.start(campaignId) iterates recipients:
+
+Map each row to Contact (upsert).
+
+Build message payload using TemplateService.populate(template, variables).
+
+Call WhatsAppProvider.send(...).
+
+Persist Message with status.
+
+Respect configured throttle.
+
+Update campaign.status and counters.
+
+CSV parsing
+
+Use Apache Commons CSV to support escape characters, quoted fields.
+
+Reject rows missing phone.
+
+Support variables_json column to pass custom template variables.
+
+12. Webhook Processing & Auto-Reply Flow
+
+Webhook receives events → persisted to webhook_events.
+
+WebhookProcessorService consumes new events:
+
+For incoming message: map phone → contact (create if not exists).
+
+Persist messages row for incoming.
+
+Check autoReplyRules (simple configurable rules stored as DB entries or static):
+
+Example: if message contains "price", reply with Price Template.
+
+If auto-reply triggered → call WhatsAppProvider.sendTemplate(...).
+
+Provide Admin API to manage simple AutoReplyRule entries (pattern → templateId).
+
+13. Security & Auth
+
+JWT-based auth with /api/v1/auth/login.
+
+Authorization: Bearer <token> header required for all endpoints except /webhooks/** (webhook validated separately by signature or token) and /auth/login.
+
+Passwords stored as bcrypt hashed strings.
+
+Role-based method-level access (e.g., @PreAuthorize("hasRole('ADMIN')")).
+
+Webhook security:
+
+Validate X-Hub-Signature if Meta sends appsecret_proof or implement token verification (Meta supports verification by GET challenge).
+
+14. Error Handling, Logging & Monitoring
+
+Centralized @ControllerAdvice for REST error responses.
+
+Use structured logging (JSON) fields: traceId, userId, campaignId.
+
+Persist send errors in messages.error and keep response JSON for analysis.
+
+Expose /actuator/health and /actuator/metrics for monitoring. Optionally integrate with CloudWatch.
+
+15. Testing Strategy- NO need 
+
+Unit tests for Service layer, Repository tests with embedded PostgreSQL (or Testcontainers).
+
+Integration tests for Controllers using MockMvc + security.
+
+Contract tests for WhatsAppProvider using WireMock simulating Meta Cloud API responses.
+
+16. UML-style Class & Sequence Descriptions
+Class Interaction (textual UML)
+
+CampaignController → calls CampaignService.startCampaign()
+
+CampaignService → uses CSVParser, ContactService, TemplateService, WhatsAppProvider
+
+TemplateService → returns rendered payload JSON
+
+WhatsAppProvider → MetaWhatsAppProvider uses WebClient to call Meta
+
+MessageRepository persists results
+
+Sequence: Bulk Send
+
+CampaignController.uploadCsv() → stores campaign and CSV metadata.
+
+CampaignService.startCampaign() reads recipients.
+
+For each recipient:
+
+ContactService.upsertContact().
+
+TemplateService.render(template, variables).
+
+MetaWhatsAppProvider.sendMessage(payload).
+
+MessageRepository.save(status, providerId, response).
+
+17. Deployment — Docker + AWS Free Tier
+Dockerfile (example)
+FROM eclipse-temurin:17-jdk-jammy
+ARG JAR_FILE=target/*.jar
+WORKDIR /app
+COPY ${JAR_FILE} app.jar
+ENV JAVA_OPTS=""
+EXPOSE 8080
+ENTRYPOINT ["sh","-c","java $JAVA_OPTS -jar /app/app.jar"]
+
+docker-compose.yml (for local dev)
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/whatsappcrm
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: whatsappcrm
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+
+AWS Free Tier Deployment Steps (EC2 + RDS)
+
+Option A: EC2 (Docker) + RDS (Postgres Free Tier) — recommended for production-like separation.
+
+Provision RDS (Postgres)
+
+Create Amazon RDS PostgreSQL instance (db.t2.micro / free-tier) in same region.
+
+Configure security group to allow EC2 security group or IP.
+
+Provision EC2
+
+Launch an EC2 instance (Amazon Linux 2 / t3.micro).
+
+Install Docker and Docker Compose.
+
+Transfer JAR or use Docker image from ECR. (ECR has free tier limits — can push image).
+
+Create environment variables: SPRING_DATASOURCE_URL=jdbc:postgresql://<rds-endpoint>:5432/whatsappcrm etc.
+
+Start container: docker run -d -p 80:8080 --env ... your-image:latest
+
+Security group
+
+Open port 80/443 for HTTP(S).
+
+Restrict DB port 5432 to EC2 host.
+
+Domain & TLS
+
+Use Route53 or point domain to EC2 public IP. Use Let's Encrypt for TLS (certbot) — optional.
+
+Option B: Single EC2 with local Postgres
+
+Simpler: Run Postgres container on EC2. Only suitable for small deployments (free-tier limits).
+
+S3 for Media
+
+Use AWS S3 to store outgoing media (images) and their public URLs.
+
+Configure IAM role on EC2 to upload to S3 (or use access keys).
+
+Env & Secrets
+
+Use AWS Secrets Manager or EC2 user-data environment or .env files — DO NOT commit secrets.
+
+18. Operational Notes & Limitations (v1)
+
+Rate limits: Since no queue is used, bulk sends must be throttled to avoid provider rate limits. Provide a per-provider throttleRate configuration.
+
+Retries: Implement idempotency (dedupe keys) and retry for transient failures.
+
+Scaling: For heavy volumes, later add SQS/RabbitMQ and worker processes or split into microservices.
+
+Monitoring: Enable CloudWatch logs and metrics.
+
+19. Implementation Roadmap & Milestones
+
+Week 1 — Core scaffolding
+
+Project skeleton in Cursor IDE, security, user model, DB migration.
+
+Basic contact CRUD + auth.
+
+Week 2 — WhatsApp integration
+
+WhatsAppProvider interface and MetaWhatsAppProvider implementation.
+
+Send single message endpoint and provider call.
+
+Week 3 — Templates & Campaign
+
+Template CRUD + template rendering.
+
+CSV upload parsing + campaign entity.
+
+Week 4 — Bulk sends & Webhook
+
+Bulk send flow (throttle + retries).
+
+Webhook endpoint for Meta Cloud events + incoming message persistence and auto-reply.
+
+Week 5 — Deployment & testing
+
+Dockerfile, docker-compose, E2E tests, AWS EC2 + RDS deploy docs.
+
+Monitoring & logging.
+
+20. Example Code Snippets (skeletons)
+
+WhatsAppProvider interface
+
+public interface WhatsAppProvider {
+  SendResponse sendText(String phone, String text);
+  SendResponse sendTemplate(String phone, Template template, Map<String,String> variables);
+  void handleWebhook(JsonNode payload);
+}
+
+
+MetaWhatsAppProvider (partial)
+
+@Service
+public class MetaWhatsAppProvider implements WhatsAppProvider {
+  private final WebClient webClient;
+  private final String phoneNumberId;
+  private final String accessToken;
+
+  public SendResponse sendTemplate(String phone, Template template, Map<String,String> variables) {
+    // build JSON payload per Meta schema
+    // call webClient.post().uri(...).header("Authorization","Bearer "+accessToken)...
+  }
+}
+
+
+CSV parsing (util)
+
+public List<CampaignRow> parseCsv(InputStream csv) {
+   try (CSVParser parser = CSVFormat.DEFAULT
+        .withHeader()
+        .withTrim()
+        .parse(new InputStreamReader(csv))) {
+     for (CSVRecord rec : parser) {
+       // extract phone,name,variables_json
+     }
+   }
+}
