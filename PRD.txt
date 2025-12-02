@@ -754,35 +754,6 @@ Monitoring: Enable CloudWatch logs and metrics.
 
 19. Implementation Roadmap & Milestones
 
-Week 1 — Core scaffolding
-
-Project skeleton in Cursor IDE, security, user model, DB migration.
-
-Basic contact CRUD + auth.
-
-Week 2 — WhatsApp integration
-
-WhatsAppProvider interface and MetaWhatsAppProvider implementation.
-
-Send single message endpoint and provider call.
-
-Week 3 — Templates & Campaign
-
-Template CRUD + template rendering.
-
-CSV upload parsing + campaign entity.
-
-Week 4 — Bulk sends & Webhook
-
-Bulk send flow (throttle + retries).
-
-Webhook endpoint for Meta Cloud events + incoming message persistence and auto-reply.
-
-Week 5 — Deployment & testing
-
-Dockerfile, docker-compose, E2E tests, AWS EC2 + RDS deploy docs.
-
-Monitoring & logging.
 
 20. Example Code Snippets (skeletons)
 

@@ -1,0 +1,270 @@
+✅ VartaAI Landing Page — Full Specification
+1️⃣ Landing Page Structure (High Level)
+
+Your landing page will have 9 core sections:
+
+Hero Section
+
+Trusted By / Social Proof
+
+Product Overview
+
+Feature Deep Dives (4 sections)
+
+Screenshots Carousel
+
+Pricing Section
+
+FAQ Section
+
+Final CTA Banner
+
+Footer
+
+2️⃣ FULL LANDING PAGE COPY + DESIGN GUIDELINES
+⭐ 1. Hero Section
+Copy
+
+Headline:
+The Complete WhatsApp CRM for Marketing, Sales & Support
+
+Subheadline:
+Send campaigns, automate conversations, manage contacts, and centralize communication — all powered by the WhatsApp Business API.
+
+Primary CTA:
+Get Started Now
+
+Secondary CTA:
+Book a Demo
+
+Right-side Visual:
+Hero mockup of your dashboard (use the screenshot you shared).
+
+Design Guidelines
+
+Full-width section
+
+Left: text
+
+Right: dashboard mockup
+
+Background: light gradient (#F7F9FC)
+
+Buttons: Primary (#0A8F5C), Secondary (Outline)
+
+⭐ 2. Trusted By Section
+Copy
+
+Trusted by fast-growing D2C brands, SaaS companies & agencies.
+
+Design
+
+Horizontal carousel or grid of logo placeholders
+
+Subtle grayscale logos
+
+⭐ 3. Product Overview Section
+Headline:
+
+Everything you need to run WhatsApp at scale.
+
+Subheadline:
+
+A modern platform that simplifies WhatsApp communications with automation, campaigns, templates, and CRM tools.
+
+3 Core Value Cards
+
+WhatsApp Campaigns
+
+Send bulk or segmented broadcasts
+
+Track delivery, read & reply metrics
+
+Flow Automation
+
+Drag-and-drop builder
+
+Automate lead journeys & support
+
+Unified Inbox
+
+Manage conversations
+
+Assign to team members
+
+Design:
+3 cards in a row with icons + light shadows.
+
+⭐ 4. Feature Section: Campaigns
+Title:
+
+Run WhatsApp Marketing Campaigns in Minutes
+
+Description:
+
+Upload contacts, choose a template, personalize messages, and send campaigns at scale with real-time analytics.
+
+Highlights:
+
+Audience segmentation
+
+Dynamic variables
+
+Schedule & automation triggers
+
+Delivery & read rate tracking
+
+Design:
+
+Left: feature explanation
+Right: screenshot of your Campaigns page
+
+⭐ 5. Feature Section: Template Builder
+Title:
+
+Create & Manage WhatsApp Templates Effortlessly
+
+Description:
+
+Design branded templates, submit for approval, and instantly use them across automations and campaigns.
+
+Highlights:
+
+Drag & drop components
+
+Buttons, media, quick replies
+
+Approval tracking
+
+Multi-language support
+
+Design:
+
+Right: Template builder screenshot
+Left: text
+
+⭐ 6. Feature Section: Flow Automation
+Title:
+
+Automate Customer Journeys with Powerful Flows
+
+Description:
+
+Automate FAQs, lead qualification, order tracking, onboarding, and more using a drag-and-drop flow builder.
+
+Highlights:
+
+Conditions & branching
+
+Integration triggers
+
+Scheduled messages
+
+AI-assisted responses
+
+⭐ 7. Feature Section: Quick Chat
+Title:
+
+A Unified Inbox for All WhatsApp Conversations
+
+Description:
+
+Manage customer chats, assign to team members, reply instantly, and track performance.
+
+Highlights:
+
+Multi-agent support
+
+Internal notes
+
+Response shortcuts
+
+Conversation tags
+
+⭐ 8. Screenshots Carousel
+
+Show the 4 main modules:
+
+Dashboard
+
+Campaigns
+
+Templates
+
+Flow builder
+
+Quick chat
+
+Design:
+
+Slider / carousel
+
+Light shadow
+
+Minimalistic border
+
+⭐ 9. Pricing Section
+Title:
+
+Simple, Transparent Pricing
+
+Starter — $XX/month
+
+1,000 conversations
+
+Unlimited templates
+
+Campaigns
+
+Basic reports
+
+Pro — $XX/month
+
+Unlimited conversations
+
+Flow automation
+
+Team members
+
+Inbox
+
+Enterprise — Custom
+
+SLA support
+
+Dedicated onboarding
+
+⭐ 10. FAQ Section
+
+Suggested questions:
+
+What do I need to get started?
+
+How does WhatsApp Business API work?
+
+Can I bring my own WABA number?
+
+Do you support multiple agents?
+
+How are WhatsApp charges billed?
+
+⭐ 11. Final CTA Banner
+
+Ready to automate your WhatsApp communication?
+Button: Start Free Trial
+
+Background: brand gradient.
+
+⭐ 12. Footer
+
+Logo
+
+Product
+
+Company
+
+Legal
+
+Contact
+
+Social icons
