@@ -1,0 +1,86 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------------< tech.vartaai:VartaAI >------------------------
+[INFO] Building VartaAI 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.4.1:clean (default-clean) @ VartaAI ---
+[INFO] Deleting /Users/sureshchoudhary/Downloads/VartaAI/target
+[INFO] 
+[INFO] >>> spring-boot:3.4.11:run (default-cli) > test-compile @ VartaAI >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ VartaAI ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 0 resource from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ VartaAI ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 53 source files with javac [debug parameters release 17] to target/classes
+[INFO] /Users/sureshchoudhary/Downloads/VartaAI/src/main/java/tech/vartaai/whatsappcrm/security/JwtUtil.java: Some input files use or override a deprecated API.
+[INFO] /Users/sureshchoudhary/Downloads/VartaAI/src/main/java/tech/vartaai/whatsappcrm/security/JwtUtil.java: Recompile with -Xlint:deprecation for details.
+[INFO] /Users/sureshchoudhary/Downloads/VartaAI/src/main/java/tech/vartaai/whatsappcrm/service/ContactService.java: /Users/sureshchoudhary/Downloads/VartaAI/src/main/java/tech/vartaai/whatsappcrm/service/ContactService.java uses unchecked or unsafe operations.
+[INFO] /Users/sureshchoudhary/Downloads/VartaAI/src/main/java/tech/vartaai/whatsappcrm/service/ContactService.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ VartaAI ---
+[INFO] skip non existing resourceDirectory /Users/sureshchoudhary/Downloads/VartaAI/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ VartaAI ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+[INFO] 
+[INFO] <<< spring-boot:3.4.11:run (default-cli) < test-compile @ VartaAI <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.4.11:run (default-cli) @ VartaAI ---
+[INFO] Attaching agents: []
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.4.11)
+
+2025-10-28T19:40:51.544+05:30  INFO 67490 --- [whatsapp-crm] [           main] t.vartaai.VartaAI.VartaAiApplication     : Starting VartaAiApplication using Java 17.0.15 with PID 67490 (/Users/sureshchoudhary/Downloads/VartaAI/target/classes started by sureshchoudhary in /Users/sureshchoudhary/Downloads/VartaAI)
+2025-10-28T19:40:51.545+05:30  INFO 67490 --- [whatsapp-crm] [           main] t.vartaai.VartaAI.VartaAiApplication     : The following 1 profile is active: "local"
+2025-10-28T19:40:51.863+05:30  INFO 67490 --- [whatsapp-crm] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-10-28T19:40:51.930+05:30  INFO 67490 --- [whatsapp-crm] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 62 ms. Found 6 JPA repository interfaces.
+2025-10-28T19:40:52.346+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2025-10-28T19:40:52.351+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2025-10-28T19:40:52.352+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.48]
+2025-10-28T19:40:52.374+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2025-10-28T19:40:52.374+05:30  INFO 67490 --- [whatsapp-crm] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 807 ms
+2025-10-28T19:40:52.499+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-10-28T19:40:52.527+05:30  INFO 67490 --- [whatsapp-crm] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.33.Final
+2025-10-28T19:40:52.553+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2025-10-28T19:40:52.596+05:30  INFO 67490 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2025-10-28T19:40:54.588+05:30  INFO 67490 --- [whatsapp-crm] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@4e51eda7
+2025-10-28T19:40:54.590+05:30  INFO 67490 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2025-10-28T19:40:55.413+05:30  INFO 67490 --- [whatsapp-crm] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 17.5
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-10-28T19:40:55.512+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-10-28T19:40:55.948+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2025-10-28T19:40:57.749+05:30  INFO 67490 --- [whatsapp-crm] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2025-10-28T19:40:58.230+05:30  WARN 67490 --- [whatsapp-crm] [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2025-10-28T19:40:58.247+05:30  WARN 67490 --- [whatsapp-crm] [           main] .s.s.UserDetailsServiceAutoConfiguration : 
+
+Using generated security password: 5a94d977-204f-453a-9273-e8a8ac5ed4bf
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2025-10-28T19:40:58.251+05:30  INFO 67490 --- [whatsapp-crm] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name inMemoryUserDetailsManager
+2025-10-28T19:40:58.417+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 2 endpoints beneath base path '/actuator'
+2025-10-28T19:40:58.709+05:30  INFO 67490 --- [whatsapp-crm] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/'
+2025-10-28T19:40:58.720+05:30  INFO 67490 --- [whatsapp-crm] [           main] t.vartaai.VartaAI.VartaAiApplication     : Started VartaAiApplication in 7.341 seconds (process running for 7.488)
+2025-10-28T19:41:54.732+05:30  INFO 67490 --- [whatsapp-crm] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-10-28T19:41:54.732+05:30  INFO 67490 --- [whatsapp-crm] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2025-10-28T19:41:54.736+05:30  INFO 67490 --- [whatsapp-crm] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 4 ms

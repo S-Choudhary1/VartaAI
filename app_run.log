@@ -1,0 +1,145 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------------< tech.vartaai:VartaAI >------------------------
+[INFO] Building VartaAI 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:3.4.11:run (default-cli) > test-compile @ VartaAI >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ VartaAI ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] Copying 0 resource from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ VartaAI ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ VartaAI ---
+[INFO] skip non existing resourceDirectory /Users/sureshchoudhary/Downloads/VartaAI/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ VartaAI ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 1 source file with javac [debug parameters release 17] to target/test-classes
+[INFO] 
+[INFO] <<< spring-boot:3.4.11:run (default-cli) < test-compile @ VartaAI <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.4.11:run (default-cli) @ VartaAI ---
+[INFO] Attaching agents: []
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::               (v3.4.11)
+
+2025-10-28T19:37:02.249+05:30  INFO 66556 --- [whatsapp-crm] [           main] t.vartaai.VartaAI.VartaAiApplication     : Starting VartaAiApplication using Java 17.0.15 with PID 66556 (/Users/sureshchoudhary/Downloads/VartaAI/target/classes started by sureshchoudhary in /Users/sureshchoudhary/Downloads/VartaAI)
+2025-10-28T19:37:02.250+05:30  INFO 66556 --- [whatsapp-crm] [           main] t.vartaai.VartaAI.VartaAiApplication     : The following 1 profile is active: "local"
+2025-10-28T19:37:02.564+05:30  INFO 66556 --- [whatsapp-crm] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2025-10-28T19:37:02.631+05:30  INFO 66556 --- [whatsapp-crm] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 62 ms. Found 6 JPA repository interfaces.
+2025-10-28T19:37:03.096+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2025-10-28T19:37:03.101+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2025-10-28T19:37:03.101+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.48]
+2025-10-28T19:37:03.125+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2025-10-28T19:37:03.126+05:30  INFO 66556 --- [whatsapp-crm] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 854 ms
+2025-10-28T19:37:03.256+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2025-10-28T19:37:03.285+05:30  INFO 66556 --- [whatsapp-crm] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.33.Final
+2025-10-28T19:37:03.300+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2025-10-28T19:37:03.339+05:30  INFO 66556 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2025-10-28T19:37:04.737+05:30  INFO 66556 --- [whatsapp-crm] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@25823192
+2025-10-28T19:37:04.738+05:30  INFO 66556 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2025-10-28T19:37:05.498+05:30  INFO 66556 --- [whatsapp-crm] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
+	Database driver: undefined/unknown
+	Database version: 17.5
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2025-10-28T19:37:05.601+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2025-10-28T19:37:06.013+05:30 ERROR 66556 --- [whatsapp-crm] [           main] j.LocalContainerEntityManagerFactoryBean : Failed to initialize JPA EntityManagerFactory: [PersistenceUnit: default] Unable to build Hibernate SessionFactory; nested exception is java.lang.ClassCastException: class org.hibernate.type.CustomType cannot be cast to class org.hibernate.type.BasicPluralType (org.hibernate.type.CustomType and org.hibernate.type.BasicPluralType are in unnamed module of loader 'app')
+2025-10-28T19:37:06.013+05:30  WARN 66556 --- [whatsapp-crm] [           main] ConfigServletWebServerApplicationContext : Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'entityManagerFactory' defined in class path resource [org/springframework/boot/autoconfigure/orm/jpa/HibernateJpaConfiguration.class]: [PersistenceUnit: default] Unable to build Hibernate SessionFactory; nested exception is java.lang.ClassCastException: class org.hibernate.type.CustomType cannot be cast to class org.hibernate.type.BasicPluralType (org.hibernate.type.CustomType and org.hibernate.type.BasicPluralType are in unnamed module of loader 'app')
+2025-10-28T19:37:06.013+05:30  INFO 66556 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
+2025-10-28T19:37:07.161+05:30  INFO 66556 --- [whatsapp-crm] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2025-10-28T19:37:07.165+05:30  INFO 66556 --- [whatsapp-crm] [           main] o.apache.catalina.core.StandardService   : Stopping service [Tomcat]
+2025-10-28T19:37:07.197+05:30  INFO 66556 --- [whatsapp-crm] [           main] .s.b.a.l.ConditionEvaluationReportLogger : 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2025-10-28T19:37:07.207+05:30 ERROR 66556 --- [whatsapp-crm] [           main] o.s.boot.SpringApplication               : Application run failed
+
+org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'entityManagerFactory' defined in class path resource [org/springframework/boot/autoconfigure/orm/jpa/HibernateJpaConfiguration.class]: [PersistenceUnit: default] Unable to build Hibernate SessionFactory; nested exception is java.lang.ClassCastException: class org.hibernate.type.CustomType cannot be cast to class org.hibernate.type.BasicPluralType (org.hibernate.type.CustomType and org.hibernate.type.BasicPluralType are in unnamed module of loader 'app')
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1826) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:607) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:207) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:973) ~[spring-context-6.2.12.jar:6.2.12]
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627) ~[spring-context-6.2.12.jar:6.2.12]
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146) ~[spring-boot-3.4.11.jar:3.4.11]
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752) ~[spring-boot-3.4.11.jar:3.4.11]
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439) ~[spring-boot-3.4.11.jar:3.4.11]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318) ~[spring-boot-3.4.11.jar:3.4.11]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361) ~[spring-boot-3.4.11.jar:3.4.11]
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350) ~[spring-boot-3.4.11.jar:3.4.11]
+	at tech.vartaai.VartaAI.VartaAiApplication.main(VartaAiApplication.java:16) ~[classes/:na]
+Caused by: jakarta.persistence.PersistenceException: [PersistenceUnit: default] Unable to build Hibernate SessionFactory; nested exception is java.lang.ClassCastException: class org.hibernate.type.CustomType cannot be cast to class org.hibernate.type.BasicPluralType (org.hibernate.type.CustomType and org.hibernate.type.BasicPluralType are in unnamed module of loader 'app')
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.buildNativeEntityManagerFactory(AbstractEntityManagerFactoryBean.java:431) ~[spring-orm-6.2.12.jar:6.2.12]
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.afterPropertiesSet(AbstractEntityManagerFactoryBean.java:400) ~[spring-orm-6.2.12.jar:6.2.12]
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.afterPropertiesSet(LocalContainerEntityManagerFactoryBean.java:366) ~[spring-orm-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.invokeInitMethods(AbstractAutowireCapableBeanFactory.java:1873) ~[spring-beans-6.2.12.jar:6.2.12]
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1822) ~[spring-beans-6.2.12.jar:6.2.12]
+	... 15 common frames omitted
+Caused by: java.lang.ClassCastException: class org.hibernate.type.CustomType cannot be cast to class org.hibernate.type.BasicPluralType (org.hibernate.type.CustomType and org.hibernate.type.BasicPluralType are in unnamed module of loader 'app')
+	at org.hibernate.type.descriptor.sql.internal.ArrayDdlTypeImpl.getCastTypeName(ArrayDdlTypeImpl.java:37) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.ast.spi.AbstractSqlAstTranslator.getCastTypeName(AbstractSqlAstTranslator.java:7095) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.ast.spi.AbstractSqlAstTranslator.visitCastTarget(AbstractSqlAstTranslator.java:7042) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.ast.tree.expression.CastTarget.accept(CastTarget.java:80) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.ast.spi.AbstractSqlAstTranslator.render(AbstractSqlAstTranslator.java:7193) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.query.sqm.produce.function.internal.PatternRenderer.render(PatternRenderer.java:233) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.query.sqm.produce.function.internal.PatternRenderer.render(PatternRenderer.java:167) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.query.sqm.produce.function.internal.PatternRenderer.render(PatternRenderer.java:150) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.function.CastFunction.render(CastFunction.java:87) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.ast.spi.AbstractSqlAstTranslator.renderCasted(AbstractSqlAstTranslator.java:5827) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.SqlAstTranslatorWithMerge.renderMergeUsingQuerySelection(SqlAstTranslatorWithMerge.java:161) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.SqlAstTranslatorWithMerge.renderMergeUsingQuery(SqlAstTranslatorWithMerge.java:150) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.SqlAstTranslatorWithMerge.renderMergeUsing(SqlAstTranslatorWithMerge.java:126) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.SqlAstTranslatorWithMerge.renderMergeStatement(SqlAstTranslatorWithMerge.java:82) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.SqlAstTranslatorWithMerge.createMergeOperation(SqlAstTranslatorWithMerge.java:43) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.PostgreSQLDialect.usingMerge(PostgreSQLDialect.java:1590) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.dialect.PostgreSQLDialect.createOptionalTableUpdateOperation(PostgreSQLDialect.java:1582) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.sql.model.internal.OptionalTableUpdate.createMutationOperation(OptionalTableUpdate.java:144) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.mutation.AbstractMutationCoordinator.createOperationGroup(AbstractMutationCoordinator.java:90) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.mutation.UpdateCoordinatorStandard.buildStaticUpdateGroup(UpdateCoordinatorStandard.java:1663) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.mutation.UpdateCoordinatorStandard.<init>(UpdateCoordinatorStandard.java:93) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.mutation.MergeCoordinator.<init>(MergeCoordinator.java:23) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.AbstractEntityPersister.buildMergeCoordinator(AbstractEntityPersister.java:3840) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.AbstractEntityPersister.doLateInit(AbstractEntityPersister.java:3582) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.persister.entity.AbstractEntityPersister.postInstantiate(AbstractEntityPersister.java:3872) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.metamodel.model.domain.internal.MappingMetamodelImpl.finishInitialization(MappingMetamodelImpl.java:203) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.internal.SessionFactoryImpl.initializeMappingModel(SessionFactoryImpl.java:373) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.internal.SessionFactoryImpl.<init>(SessionFactoryImpl.java:302) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.boot.internal.SessionFactoryBuilderImpl.build(SessionFactoryBuilderImpl.java:463) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl.build(EntityManagerFactoryBuilderImpl.java:1517) ~[hibernate-core-6.6.33.Final.jar:6.6.33.Final]
+	at org.springframework.orm.jpa.vendor.SpringHibernateJpaPersistenceProvider.createContainerEntityManagerFactory(SpringHibernateJpaPersistenceProvider.java:66) ~[spring-orm-6.2.12.jar:6.2.12]
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.createNativeEntityManagerFactory(LocalContainerEntityManagerFactoryBean.java:390) ~[spring-orm-6.2.12.jar:6.2.12]
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.buildNativeEntityManagerFactory(AbstractEntityManagerFactoryBean.java:419) ~[spring-orm-6.2.12.jar:6.2.12]
+	... 19 common frames omitted
+
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  6.696 s
+[INFO] Finished at: 2025-10-28T19:37:07+05:30
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.springframework.boot:spring-boot-maven-plugin:3.4.11:run (default-cli) on project VartaAI: Process terminated with exit code: 1 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
