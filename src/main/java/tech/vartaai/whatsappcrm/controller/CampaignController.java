@@ -15,6 +15,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/campaigns")
+@CrossOrigin()
 public class CampaignController {
 
     private final CampaignService campaignService;

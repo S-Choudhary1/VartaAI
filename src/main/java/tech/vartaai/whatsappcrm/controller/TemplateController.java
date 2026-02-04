@@ -14,6 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/templates")
+@CrossOrigin()
 public class TemplateController {
 
     private final TemplateService templateService;

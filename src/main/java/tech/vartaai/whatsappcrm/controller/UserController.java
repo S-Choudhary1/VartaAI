@@ -9,6 +9,7 @@ import tech.vartaai.whatsappcrm.service.AuthService;
 
 @RestController
 @RequestMapping("/api/v1/users")
+@CrossOrigin()
 public class UserController {
 
     private final AuthService authService;

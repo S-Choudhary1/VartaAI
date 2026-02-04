@@ -15,6 +15,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/clients")
 @Slf4j
+@CrossOrigin()
 public class ClientController {
 
     private final ClientRepository clientRepository;

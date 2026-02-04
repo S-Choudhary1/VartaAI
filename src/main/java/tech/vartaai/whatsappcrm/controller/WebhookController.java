@@ -14,6 +14,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/webhooks/whatsapp")
 @Slf4j
+@CrossOrigin()
 public class WebhookController {
 
     private final WhatsAppProvider provider;

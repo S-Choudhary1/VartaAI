@@ -18,6 +18,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/messages")
 @Slf4j
+@CrossOrigin()
 public class MessageController {
 
     private final MessageService messageService;

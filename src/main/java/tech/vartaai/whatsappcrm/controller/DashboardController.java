@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/dashboard")
+@CrossOrigin()
 public class DashboardController {
 
     private final DashboardService dashboardService;

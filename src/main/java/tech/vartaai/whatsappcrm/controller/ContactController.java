@@ -13,6 +13,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/contacts")
+@CrossOrigin()
 public class ContactController {
 
     private final ContactService contactService;
