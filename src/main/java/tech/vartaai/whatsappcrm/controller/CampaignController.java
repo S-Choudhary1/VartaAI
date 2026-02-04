@@ -5,9 +5,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import tech.vartaai.whatsappcrm.entity.Campaign;
+import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.service.CampaignService;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -50,7 +52,7 @@ public class CampaignController {
     }
 
     @GetMapping("/{id}/messages")
-    public ResponseEntity<java.util.List<tech.vartaai.whatsappcrm.entity.Message>> getCampaignMessages(@PathVariable UUID id, @RequestHeader("X-Client-Id") UUID clientId) {
+    public ResponseEntity<List<Message>> getCampaignMessages(@PathVariable UUID id, @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(campaignService.getCampaignMessages(id, clientId));
     }
 }

@@ -73,9 +73,10 @@ public class MessageService {
         SendResponse resp;
         Message message = new Message();
         message.setClient(client);
-        message.setContactId(contact.getId());
+        message.setContactId(contact.getId().toString());
         message.setDirection(Message.Direction.OUTGOING);
         message.setProvider("META");
+        message.setCampaignId(request.getCampaignId());
 
         try {
             if (request.getTemplateId() != null) {

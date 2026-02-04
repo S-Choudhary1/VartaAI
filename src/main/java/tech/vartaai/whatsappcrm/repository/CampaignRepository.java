@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.UUID;
 @Repository
 public interface CampaignRepository extends JpaRepository<Campaign, UUID> {
-    List<Campaign> findByClient_Id(UUID clientId);
+    List<Campaign> findByClient_IdOrderByCreatedAtDesc(UUID clientId);
 }
 
 

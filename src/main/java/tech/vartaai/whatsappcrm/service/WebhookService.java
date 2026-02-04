@@ -84,7 +84,7 @@ public class WebhookService {
 
                                     Message message = new Message();
                                     message.setClient(client);
-                                    message.setContactId(contact.getId());
+                                    message.setContactId(contact.getId().toString());
                                     message.setDirection(Message.Direction.INCOMING);
                                     message.setStatus(Message.Status.DELIVERED);
                                     message.setProvider("META");

@@ -36,7 +36,7 @@ public class MessageController {
     public ResponseEntity<List<Message>> getHistory(@RequestParam String phone,
                                                     @RequestHeader("X-Client-Id") UUID clientId) {
         return contactRepository.findByPhoneAndClient_Id(phone, clientId)
-                .map(contact -> ResponseEntity.ok(messageRepository.findByContactIdAndClient_Id(contact.getId(), clientId)))
+                .map(contact -> ResponseEntity.ok(messageRepository.findByContactIdAndClient_Id(contact.getId().toString(), clientId)))
                 .orElse(ResponseEntity.ok(List.of()));
     }
 

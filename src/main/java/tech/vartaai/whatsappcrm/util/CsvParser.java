@@ -1,5 +1,6 @@
 package tech.vartaai.whatsappcrm.util;
 
+import lombok.Data;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -14,10 +15,12 @@ import java.util.*;
 @Component
 public class CsvParser {
 
+    @Data
     public static class Row {
         public String phone;
         public String name;
         public Map<String, String> variables = new HashMap<>();
+
     }
 
     public List<Row> parse(InputStream inputStream) {

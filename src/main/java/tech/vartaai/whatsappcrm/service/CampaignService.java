@@ -1,10 +1,10 @@
 package tech.vartaai.whatsappcrm.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
 import tech.vartaai.whatsappcrm.util.CsvParser;
@@ -29,11 +29,14 @@ public class CampaignService {
     private final CsvParser csvParser;
     private final ObjectMapper objectMapper;
 
-    public CampaignService(CampaignRepository campaignRepository, MessageRepository messageRepository, CsvParser csvParser, ObjectMapper objectMapper) {
+    private final MessageService messageService;
+
+    public CampaignService(CampaignRepository campaignRepository, MessageRepository messageRepository, CsvParser csvParser, ObjectMapper objectMapper, MessageService messageService) {
         this.campaignRepository = campaignRepository;
         this.messageRepository = messageRepository;
         this.csvParser = csvParser;
         this.objectMapper = objectMapper;
+        this.messageService = messageService;
     }
 
     @Transactional
@@ -44,9 +47,8 @@ public class CampaignService {
             meta.put("originalFilename", file.getOriginalFilename());
             meta.put("totalRows", rows.size());
             meta.put("targets", rows); // Save the actual data!
-
             Campaign c = new Campaign();
-            
+
             Client client = new Client();
             client.setId(clientId);
             c.setClient(client);
@@ -57,7 +59,23 @@ public class CampaignService {
             c.setScheduledAt(scheduledAt);
             c.setStatus(Campaign.Status.PENDING);
             c.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
-            return campaignRepository.save(c);
+            Campaign save = campaignRepository.save(c);
+            for(CsvParser.Row row : rows) {
+                messageService.sendMessage(
+                        new SendMessageRequest(
+                                row.getPhone(),
+                                null,
+                                null,
+                                templateId,
+                                row.getVariables(),
+                            "META",
+                                save.getId().toString()
+                        ),
+                        clientId
+                );
+            }
+
+            return c;
         } catch (IOException e) {
             throw new RuntimeException("Failed to process CSV", e);
         }
@@ -73,12 +91,12 @@ public class CampaignService {
     }
 
     public List<Campaign> getAllCampaigns(UUID clientId) {
-        return campaignRepository.findByClient_Id(clientId);
+        return campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId);
     }
 
     public List<Message> getCampaignMessages(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId); // Validates campaign exists and belongs to client
-        return messageRepository.findByCampaignId(c.getId());
+        return messageRepository.findByCampaignId(c.getId().toString());
     }
 }
 

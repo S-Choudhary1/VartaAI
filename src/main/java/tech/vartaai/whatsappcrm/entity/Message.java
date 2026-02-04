@@ -3,6 +3,7 @@ package tech.vartaai.whatsappcrm.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
 import jakarta.persistence.*;
+import lombok.Data;
 import org.hibernate.annotations.Type;
 
 import java.time.OffsetDateTime;
@@ -10,6 +11,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "messages")
+@Data
 public class Message {
 
     public enum Direction { OUTGOING, INCOMING }
@@ -25,10 +27,10 @@ public class Message {
     private Client client;
 
     @Column(name = "campaign_id")
-    private UUID campaignId;
+    private String campaignId;
 
     @Column(name = "contact_id")
-    private UUID contactId;
+    private String contactId;
 
     @Column(name = "provider_message_id", length = 255)
     private String providerMessageId;
@@ -64,30 +66,6 @@ public class Message {
         if (createdAt == null) createdAt = OffsetDateTime.now();
     }
 
-    public UUID getId() { return id; }
-    public void setId(UUID id) { this.id = id; }
-    public Client getClient() { return client; }
-    public void setClient(Client client) { this.client = client; }
-    public UUID getCampaignId() { return campaignId; }
-    public void setCampaignId(UUID campaignId) { this.campaignId = campaignId; }
-    public UUID getContactId() { return contactId; }
-    public void setContactId(UUID contactId) { this.contactId = contactId; }
-    public String getProviderMessageId() { return providerMessageId; }
-    public void setProviderMessageId(String providerMessageId) { this.providerMessageId = providerMessageId; }
-    public String getProvider() { return provider; }
-    public void setProvider(String provider) { this.provider = provider; }
-    public Direction getDirection() { return direction; }
-    public void setDirection(Direction direction) { this.direction = direction; }
-    public Status getStatus() { return status; }
-    public void setStatus(Status status) { this.status = status; }
-    public String getPayloadJson() { return payloadJson; }
-    public void setPayloadJson(String payloadJson) { this.payloadJson = payloadJson; }
-    public String getResponseJson() { return responseJson; }
-    public void setResponseJson(String responseJson) { this.responseJson = responseJson; }
-    public String getError() { return error; }
-    public void setError(String error) { this.error = error; }
-    public OffsetDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }
 
 

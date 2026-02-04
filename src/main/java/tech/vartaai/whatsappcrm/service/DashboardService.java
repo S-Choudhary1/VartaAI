@@ -1,8 +1,6 @@
 package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.entity.Message;
@@ -37,7 +35,7 @@ public class DashboardService {
         
         long totalContacts = contactRepository.findByClient_Id(clientId).size();
         
-        List<Campaign> allCampaigns = campaignRepository.findByClient_Id(clientId);
+        List<Campaign> allCampaigns = campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId);
         long activeCampaigns = allCampaigns.stream()
                 .filter(c -> c.getStatus() == Campaign.Status.RUNNING || c.getStatus() == Campaign.Status.PENDING)
                 .count();
@@ -88,7 +86,7 @@ public class DashboardService {
         }
         
         // Count messages for this campaign to calculate progress
-        long processed = messageRepository.findByCampaignId(c.getId()).size();
+        long processed = messageRepository.findByCampaignId(c.getId().toString()).size();
 
         map.put("totalContacts", total);
         map.put("processedContacts", processed);

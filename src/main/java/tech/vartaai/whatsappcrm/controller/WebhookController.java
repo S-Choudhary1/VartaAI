@@ -1,6 +1,7 @@
 package tech.vartaai.whatsappcrm.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +13,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/webhooks/whatsapp")
+@Slf4j
 public class WebhookController {
 
     private final WhatsAppProvider provider;
@@ -47,6 +49,7 @@ public class WebhookController {
     @PostMapping
     public ResponseEntity<Map<String, String>> receive(@RequestBody Map<String, Object> payload,
                                                        @RequestParam(name = "token", required = false) String token) {
+
         if (token == null || !authToken.equals(token)) {
              return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }

@@ -31,9 +31,11 @@ Spring Boot backend for WhatsApp CRM with Meta WhatsApp Cloud API integration.
 docker run -d -p 5432:5432 -e POSTGRES_DB=whatsappcrm -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres postgres:15
 ```
 
-2. **Configure application.yml**:
-- Update `whatsapp.providers.meta.*` with your Meta credentials
-- Update `security.jwt.secret` with a secure secret
+2. **Configure env variables** (copy `env.example` to `.env` or export in shell):
+- `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`
+- `WHATSAPP_PROVIDERS_META_*`
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_WEBHOOK_AUTH_TOKEN`
+- `SECURITY_JWT_SECRET`
 
 3. **Run the application**:
 ```bash
@@ -80,30 +82,27 @@ docker-compose up --build
 
 ## Configuration
 
-Update `src/main/resources/application.yml`:
+Core configuration is driven by environment variables. See `env.example` for the full list:
 
-```yaml
-whatsapp:
-  providers:
-    meta:
-      apiBaseUrl: https://graph.facebook.com/v14.0
-      phoneNumberId: YOUR_PHONE_NUMBER_ID
-      accessToken: YOUR_ACCESS_TOKEN
-
-security:
-  jwt:
-    secret: YOUR_SECRET_KEY
-    expirationSeconds: 3600
-```
+- Database: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `SPRING_JPA_HIBERNATE_DDL_AUTO`
+- WhatsApp: `WHATSAPP_PROVIDERS_META_API_BASE_URL`, `WHATSAPP_PROVIDERS_META_PHONE_NUMBER_ID`, `WHATSAPP_PROVIDERS_META_ACCESS_TOKEN`, `WHATSAPP_THROTTLE_MESSAGES_PER_SECOND`
+- Webhooks: `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_WEBHOOK_AUTH_TOKEN`
+- Security: `SECURITY_JWT_SECRET`, `SECURITY_JWT_EXPIRATION_SECONDS`
+- Misc: `SERVER_PORT`, `JAVA_OPTS`, `SPRING_PROFILES_ACTIVE`
 
 ## Deployment
 
 Built JAR is available at `target/VartaAI-0.0.1-SNAPSHOT.jar`
 
-For AWS deployment, use the provided `Dockerfile` and configure environment variables:
-- `SPRING_DATASOURCE_URL`
-- `SPRING_DATASOURCE_USERNAME`
-- `SPRING_DATASOURCE_PASSWORD`
+### Railway
+1) Push the repo to GitHub and create a Railway project.  
+2) Deploy from the GitHub repo; Railway auto-detects the `Dockerfile` (or set build `./mvnw -DskipTests clean package` and start `java -jar target/*.jar`).  
+3) Set Variables in Railway (testing & production envs): all keys from `env.example`, plus `SPRING_PROFILES_ACTIVE` per environment.  
+4) Add a Railway Postgres resource if needed and map its `DATABASE_URL` into `SPRING_DATASOURCE_URL` (user/password from the same resource).  
+5) Deploy testing first, check `/actuator/health`, then deploy production.  
+
+### AWS / other
+Use the provided `Dockerfile` and configure the same environment variables.
 
 ## License
 
