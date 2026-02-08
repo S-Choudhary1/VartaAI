@@ -48,7 +48,7 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .block();
-
+            log.info("Message response {}" , response);
             String providerMessageId = response != null && response.has("messages") && response.get("messages").isArray() &&
                 response.get("messages").size() > 0
                 ? response.get("messages").get(0).get("id").asText()
@@ -80,6 +80,7 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .block();
+            log.info("Message response {}" , response);
 
             String providerMessageId = response != null && response.has("messages") && response.get("messages").isArray() &&
                 response.get("messages").size() > 0
