@@ -3,6 +3,7 @@ package tech.vartaai.whatsappcrm.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.vartaai.whatsappcrm.entity.Client;
@@ -17,6 +18,7 @@ import tech.vartaai.whatsappcrm.repository.WebhookEventRepository;
 import java.util.Map;
 
 @Service
+@Slf4j
 public class WebhookService {
 
     private final WebhookEventRepository webhookEventRepository;
@@ -45,7 +47,8 @@ public class WebhookService {
             event.setEventType(eventType);
             event.setPayloadJson(objectMapper.writeValueAsString(payload));
             webhookEventRepository.save(event);
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
+            log.error("Error in persist event ", e);
             throw new RuntimeException("Failed to serialize webhook payload", e);
         }
     }
@@ -99,6 +102,7 @@ public class WebhookService {
                 }
             }
         } catch (Exception e) {
+            log.error("Error in processing webhook", e);
             e.printStackTrace();
         }
     }

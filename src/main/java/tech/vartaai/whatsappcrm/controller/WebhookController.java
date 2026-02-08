@@ -38,6 +38,7 @@ public class WebhookController {
     public ResponseEntity<String> verify(@RequestParam(name = "hub.mode", required = false) String mode,
                                          @RequestParam(name = "hub.challenge", required = false) String challenge,
                                          @RequestParam(name = "hub.verify_token", required = false) String token) {
+        log.info("Webhook verify mode {} challenge {} token {}", mode, challenge, token);
         if (mode != null && challenge != null && token != null) {
             if ("subscribe".equals(mode) && verifyToken.equals(token)) {
                 return ResponseEntity.ok(challenge);
@@ -50,7 +51,8 @@ public class WebhookController {
     @PostMapping
     public ResponseEntity<Map<String, String>> receive(@RequestBody Map<String, Object> payload,
                                                        @RequestParam(name = "token", required = false) String token) {
-
+        log.info("Webhook token {}" , token);
+        log.info("Webhook payload {}" , payload);
         if (token == null || !authToken.equals(token)) {
              return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
