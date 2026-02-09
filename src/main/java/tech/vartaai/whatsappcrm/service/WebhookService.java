@@ -54,58 +54,180 @@ public class WebhookService {
     }
 
     @Transactional
-    public void processIncoming(Map<String, Object> payload) {
+    public void processWebhook(Map<String, Object> payload) {
         persistEvent("META", "incoming", payload);
+        log.info("WA_WEBHOOK_RECEIVED payloadSize={}", payload.size());
 
-        try {
-            JsonNode root = objectMapper.valueToTree(payload);
-            if (root.has("entry")) {
-                for (JsonNode entry : root.get("entry")) {
-                    if (entry.has("changes")) {
-                        for (JsonNode change : entry.get("changes")) {
-                            JsonNode value = change.get("value");
-                            if (value != null && value.has("messages")) {
-                                String phoneId = value.path("metadata").path("phone_number_id").asText();
-                                Client client = clientRepository.findByPhoneNumberId(phoneId).orElse(null);
+        JsonNode root = objectMapper.valueToTree(payload);
 
-                                if (client == null) {
-                                    continue;
-                                }
+        for (JsonNode entry : root.path("entry")) {
+            for (JsonNode change : entry.path("changes")) {
 
-                                for (JsonNode msgNode : value.get("messages")) {
-                                    String from = msgNode.get("from").asText();
-                                    String msgId = msgNode.get("id").asText();
+                String field = change.path("field").asText();
+                JsonNode value = change.path("value");
 
-                                    Contact contact = contactRepository.findByPhoneAndClient_Id(from, client.getId())
-                                            .orElseGet(() -> {
-                                                Contact newContact = new Contact();
-                                                newContact.setClient(client);
-                                                newContact.setPhone(from);
-                                                newContact.setName(from);
-                                                return contactRepository.save(newContact);
-                                            });
+                log.info("WA_CHANGE field={}", field);
 
-                                    Message message = new Message();
-                                    message.setClient(client);
-                                    message.setContactId(contact.getId().toString());
-                                    message.setDirection(Message.Direction.INCOMING);
-                                    message.setStatus(Message.Status.DELIVERED);
-                                    message.setProvider("META");
-                                    message.setProviderMessageId(msgId);
-                                    message.setPayloadJson(msgNode.toString());
+                if (!"messages".equals(field)) {
+                    log.info("WA_SKIP unsupported field={}", field);
+                    continue;
+                }
 
-                                    messageRepository.save(message);
-                                }
-                            }
-                        }
-                    }
+                String phoneNumberId = value.path("metadata")
+                        .path("phone_number_id").asText();
+
+                Client client = clientRepository
+                        .findByPhoneNumberId(phoneNumberId)
+                        .orElse(null);
+
+                if (client == null) {
+                    log.warn("WA_CLIENT_NOT_FOUND phoneNumberId={}", phoneNumberId);
+                    continue;
+                }
+
+                log.info("WA_CLIENT_RESOLVED clientId={}", client.getId());
+
+                if (value.has("messages")) {
+                    handleIncomingMessages(value, client);
+                }
+
+                if (value.has("statuses")) {
+                    handleStatusReceipts(value);
                 }
             }
-        } catch (Exception e) {
-            log.error("Error in processing webhook", e);
-            e.printStackTrace();
         }
     }
+    private void handleIncomingMessages(JsonNode value, Client client) {
+
+        JsonNode contactsNode = value.path("contacts");
+
+        String contactName = null;
+        String waId = null;
+
+        if (contactsNode.isArray() && contactsNode.size() > 0) {
+            contactName = contactsNode.get(0)
+                    .path("profile")
+                    .path("name").asText(null);
+
+            waId = contactsNode.get(0)
+                    .path("wa_id").asText(null);
+        }
+
+        for (JsonNode msg : value.get("messages")) {
+
+            String msgId = msg.path("id").asText();
+            String from = msg.path("from").asText();
+            String type = msg.path("type").asText();
+            String ts = msg.path("timestamp").asText();
+
+            log.info("WA_INCOMING msgId={} from={} type={}", msgId, from, type);
+
+//            // ✅ idempotent check
+//            if (messageRepository.existsByProviderMessageId(msgId)) {
+//                log.warn("WA_DUPLICATE_MESSAGE msgId={}", msgId);
+//                continue;
+//            }
+
+            Contact contact = findOrCreateContact(from, contactName, client);
+
+            Message m = new Message();
+            m.setClient(client);
+            m.setContactId(contact.getId().toString());
+            m.setDirection(Message.Direction.INCOMING);
+            m.setProvider("META");
+            m.setProviderMessageId(msgId);
+            m.setStatus(Message.Status.DELIVERED);
+            m.setPayloadJson(msg.toString());
+
+            // parse content
+            if ("text".equals(type)) {
+                String body = msg.path("text").path("body").asText();
+                m.setResponseJson(body);
+                log.info("WA_TEXT_BODY msgId={} text={}", msgId, body);
+            }
+
+            messageRepository.save(m);
+
+            log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
+
+            // optional auto reply
+//            autoReplyLogic(m, contact, client);
+        }
+    }
+
+    private void handleStatusReceipts(JsonNode value) {
+
+        for (JsonNode status : value.get("statuses")) {
+
+            String msgId = status.path("id").asText();
+            String state = status.path("status").asText();
+            String recipient = status.path("recipient_id").asText();
+            String ts = status.path("timestamp").asText();
+
+            log.info("WA_STATUS msgId={} status={} recipient={}",
+                    msgId, state, recipient);
+
+            Message msg = messageRepository
+                    .findByProviderMessageId(msgId)
+                    .orElse(null);
+
+            if (msg == null) {
+                log.warn("WA_STATUS_NO_MESSAGE msgId={}", msgId);
+                continue;
+            }
+
+            switch (state) {
+                case "sent":
+                    msg.setStatus(Message.Status.SENT);
+                    break;
+
+                case "delivered":
+                    msg.setStatus(Message.Status.DELIVERED);
+                    break;
+
+                case "read":
+                    msg.setStatus(Message.Status.READ);
+                    break;
+
+                case "failed":
+                    msg.setStatus(Message.Status.FAILED);
+                    break;
+            }
+
+            messageRepository.save(msg);
+
+            log.info("WA_STATUS_UPDATED msgId={} -> {}", msgId, state);
+        }
+    }
+
+
+    private Contact findOrCreateContact(
+            String phone,
+            String name,
+            Client client) {
+
+        return contactRepository
+                .findByPhoneAndClient_Id(phone, client.getId())
+                .map(c -> {
+                    if (name != null && !name.equals(c.getName())) {
+                        c.setName(name);
+                        contactRepository.save(c);
+                        log.info("WA_CONTACT_NAME_UPDATED phone={}", phone);
+                    }
+                    return c;
+                })
+                .orElseGet(() -> {
+                    Contact c = new Contact();
+                    c.setPhone(phone);
+                    c.setName(name != null ? name : phone);
+                    c.setClient(client);
+                    contactRepository.save(c);
+                    log.info("WA_CONTACT_CREATED phone={}", phone);
+                    return c;
+                });
+    }
+
+
 }
 
 

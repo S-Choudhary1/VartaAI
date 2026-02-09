@@ -56,7 +56,7 @@ public class WebhookController {
         if (token == null || !authToken.equals(token)) {
              return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        webhookService.processIncoming(payload);
+        webhookService.processWebhook(payload);
         // Provider-specific handling (delivery receipts, messages)
         provider.handleWebhook(objectMapper.valueToTree(payload));
         return ResponseEntity.ok(Map.of("status", "received"));
