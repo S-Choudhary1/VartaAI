@@ -122,11 +122,11 @@ public class WebhookService {
 
             log.info("WA_INCOMING msgId={} from={} type={}", msgId, from, type);
 
-//            // ✅ idempotent check
-//            if (messageRepository.existsByProviderMessageId(msgId)) {
-//                log.warn("WA_DUPLICATE_MESSAGE msgId={}", msgId);
-//                continue;
-//            }
+            // ✅ idempotent check
+            if (messageRepository.existsByProviderMessageId(msgId)) {
+                log.warn("WA_DUPLICATE_MESSAGE msgId={}", msgId);
+                continue;
+            }
 
             Contact contact = findOrCreateContact(from, contactName, client);
 
@@ -142,7 +142,7 @@ public class WebhookService {
             // parse content
             if ("text".equals(type)) {
                 String body = msg.path("text").path("body").asText();
-                m.setResponseJson(body);
+//                m.setResponseJson(body);
                 log.info("WA_TEXT_BODY msgId={} text={}", msgId, body);
             }
 

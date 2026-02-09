@@ -16,6 +16,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findByContactIdAndClient_Id(String contactId, UUID clientId);
 
     Optional<Message> findByProviderMessageId(String providerMsgId);
+
+    boolean existsByProviderMessageId(String providerMsgId);
 }
 
 
