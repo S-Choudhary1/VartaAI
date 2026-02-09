@@ -53,9 +53,9 @@ public class WebhookController {
                                                        @RequestParam(name = "token", required = false) String token) {
         log.info("Webhook token {}" , token);
         log.info("Webhook payload {}" , payload);
-        if (token == null || !authToken.equals(token)) {
-             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
+//        if (token == null || !authToken.equals(token)) {
+//             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+//        }
         webhookService.processWebhook(payload);
         // Provider-specific handling (delivery receipts, messages)
         provider.handleWebhook(objectMapper.valueToTree(payload));

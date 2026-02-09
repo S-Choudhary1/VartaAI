@@ -6,8 +6,11 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import tech.vartaai.whatsappcrm.config.WhatsAppProperties;
+import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Template;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -26,33 +29,104 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
     }
 
     @Override
-    public SendResponse sendTemplate(tech.vartaai.whatsappcrm.entity.Client client, String phone, Template template, Map<String, String> variables) {
+    public SendResponse sendTemplate(
+            Client client,
+            String phone,
+            Template template,
+            Map<String, String> variables) {
+
         try {
+
             String phoneNumberId = client.getPhoneNumberId();
             String accessToken = client.getAccessToken();
 
-            // Minimal payload for template send; real implementation should map content JSON properly
-            JsonNode response = webClient.post()
-                .uri(uriBuilder -> uriBuilder.path("/" + phoneNumberId + "/messages").build())
-                .header("Authorization", "Bearer " + accessToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of(
+            log.info("WA_TEMPLATE_SEND start template={} to={}",
+                    template.getName(), phone);
+
+            // =========================
+            // Build BODY parameters
+            // =========================
+
+            List<Map<String, Object>> bodyParams = new ArrayList<>();
+
+            variables.entrySet()
+                    .stream()
+                    .sorted(Map.Entry.comparingByKey()) // var1,var2,var3 order
+                    .forEach(e -> bodyParams.add(
+                            Map.of(
+                                    "type", "text",
+                                    "text", e.getValue()
+                            )
+                    ));
+
+            List<Map<String, Object>> components = new ArrayList<>();
+
+            if (!bodyParams.isEmpty()) {
+                components.add(Map.of(
+                        "type", "body",
+                        "parameters", bodyParams
+                ));
+            }
+
+            // =========================
+            // Build payload
+            // =========================
+
+            Map<String, Object> payload = Map.of(
                     "messaging_product", "whatsapp",
                     "to", phone,
                     "type", "template",
                     "template", Map.of(
-                        "name", template.getName(),
-                        "language", Map.of("code", "en_US")
+                            "name", template.getName(),
+                            "language", Map.of(
+                                    "code","en_US"
+                            ),
+                            "components", components
                     )
-                ))
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block();
-            log.info("Message response {}" , response);
-            String providerMessageId = response != null && response.has("messages") && response.get("messages").isArray() &&
-                response.get("messages").size() > 0
-                ? response.get("messages").get(0).get("id").asText()
-                : null;
+            );
+
+            log.debug("WA_TEMPLATE_PAYLOAD {}", payload);
+
+            // =========================
+            // Send
+            // =========================
+
+            JsonNode response = webClient.post()
+                    .uri("/" + phoneNumberId + "/messages")
+                    .header("Authorization", "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            log.info("WA_TEMPLATE_RESPONSE {}", response);
+
+            // =========================
+            // Extract provider id
+            // =========================
+
+            String providerMessageId = null;
+
+            if (response != null &&
+                    response.has("messages") &&
+                    response.get("messages").isArray() &&
+                    response.get("messages").size() > 0) {
+
+                providerMessageId =
+                        response.get("messages")
+                                .get(0)
+                                .path("id")
+                                .asText(null);
+            }
+
+            if (providerMessageId == null) {
+                log.error("WA_TEMPLATE_NO_MSG_ID response={}", response);
+                return new SendResponse(null, "FAILED");
+            }
+
+            log.info("WA_TEMPLATE_SENT providerMsgId={}", providerMessageId);
+
             return new SendResponse(providerMessageId, "SENT");
         } catch (Exception e) {
             log.error("error " , e);
