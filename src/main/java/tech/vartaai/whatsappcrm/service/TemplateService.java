@@ -38,6 +38,8 @@ public class TemplateService {
 
         template.setName(request.getName());
         template.setProviderTemplateId(request.getProviderTemplateId());
+        template.setLanguageCode(request.getLanguageCode());
+        template.setInteractionType(request.getInteractionType());
         template.setType(Template.TemplateType.valueOf(request.getType().toUpperCase()));
         template.setCreatedBy(createdBy);
 
@@ -79,6 +81,8 @@ public class TemplateService {
 
         template.setName(request.getName());
         template.setProviderTemplateId(request.getProviderTemplateId());
+        template.setLanguageCode(request.getLanguageCode());
+        template.setInteractionType(request.getInteractionType());
         template.setType(Template.TemplateType.valueOf(request.getType().toUpperCase()));
 
         try {
@@ -129,6 +133,8 @@ public class TemplateService {
                     template.getProviderTemplateId(),
                     template.getType().name(),
                     content,
+                    template.getLanguageCode(),
+                    template.getInteractionType(),
                     template.getCreatedBy(),
                     template.getCreatedAt(),
                     template.isActive()

@@ -56,6 +56,7 @@ public class ClientController {
             client.setName(clientDetails.getName());
             client.setPhoneNumberId(clientDetails.getPhoneNumberId());
             client.setWabaId(clientDetails.getWabaId());
+            client.setLanguage(clientDetails.getLanguage());
             if (clientDetails.getAccessToken() != null && !clientDetails.getAccessToken().isEmpty()) {
                 client.setAccessToken(clientDetails.getAccessToken());
             }

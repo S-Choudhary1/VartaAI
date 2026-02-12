@@ -27,6 +27,21 @@ public class Template {
     @Column(name = "provider_template_id", length = 200)
     private String providerTemplateId;
 
+    /**
+     * Language code for this template, e.g. en_US, hi_IN.
+     * If null, the client's default language (if any) will be used.
+     */
+    @Column(name = "language_code", length = 32)
+    private String languageCode;
+
+    /**
+     * High-level interaction category for this template
+     * (e.g. CHOICE, EXTERNAL_LINK). This is for app/UI logic
+     * and does not affect how Meta stores the template.
+     */
+    @Column(name = "interaction_type", length = 50)
+    private String interactionType;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false, length = 50)
     private TemplateType type;
@@ -58,6 +73,10 @@ public class Template {
     public void setName(String name) { this.name = name; }
     public String getProviderTemplateId() { return providerTemplateId; }
     public void setProviderTemplateId(String providerTemplateId) { this.providerTemplateId = providerTemplateId; }
+    public String getLanguageCode() { return languageCode; }
+    public void setLanguageCode(String languageCode) { this.languageCode = languageCode; }
+    public String getInteractionType() { return interactionType; }
+    public void setInteractionType(String interactionType) { this.interactionType = interactionType; }
     public TemplateType getType() { return type; }
     public void setType(TemplateType type) { this.type = type; }
     public String getContentJson() { return contentJson; }

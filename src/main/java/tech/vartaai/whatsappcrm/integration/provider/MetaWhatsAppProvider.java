@@ -72,6 +72,14 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
             // Build payload
             // =========================
 
+            String languageCode = template.getLanguageCode();
+            if (languageCode == null || languageCode.isBlank()) {
+                languageCode = client.getLanguage();
+            }
+            if (languageCode == null || languageCode.isBlank()) {
+                languageCode = "en_US";
+            }
+
             Map<String, Object> payload = Map.of(
                     "messaging_product", "whatsapp",
                     "to", phone,
@@ -79,7 +87,7 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
                     "template", Map.of(
                             "name", template.getName(),
                             "language", Map.of(
-                                    "code","en_US"
+                                    "code", languageCode
                             ),
                             "components", components
                     )

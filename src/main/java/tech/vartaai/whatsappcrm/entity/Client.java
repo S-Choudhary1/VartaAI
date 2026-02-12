@@ -27,6 +27,13 @@ public class Client {
     @Column(name = "access_token", length = 500) // Access tokens can be long
     private String accessToken;
 
+    /**
+     * Default language for messages sent on behalf of this client.
+     * Example values: en_US, hi_IN, es_ES, etc.
+     */
+    @Column(name = "language", length = 32)
+    private String language;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -34,6 +41,10 @@ public class Client {
     public void prePersist() {
         if (id == null) id = UUID.randomUUID();
         if (createdAt == null) createdAt = OffsetDateTime.now();
+        if (language == null || language.isBlank()) {
+            // Default client language is English
+            language = "en_US";
+        }
     }
 
     public UUID getId() { return id; }
@@ -48,6 +59,8 @@ public class Client {
     public void setWabaId(String wabaId) { this.wabaId = wabaId; }
     public String getAccessToken() { return accessToken; }
     public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
+    public String getLanguage() { return language; }
+    public void setLanguage(String language) { this.language = language; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }
