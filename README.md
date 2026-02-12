@@ -15,7 +15,7 @@ Spring Boot backend for WhatsApp CRM with Meta WhatsApp Cloud API integration.
 
 ## Tech Stack
 
-- Java 17
+- Java 21
 - Spring Boot 3.4.11
 - PostgreSQL
 - Spring Security + JWT
