@@ -97,6 +97,7 @@ public class WebhookService {
             }
         }
     }
+
     private void handleIncomingMessages(JsonNode value, Client client) {
 
         JsonNode contactsNode = value.path("contacts");
@@ -119,10 +120,28 @@ public class WebhookService {
             String from = msg.path("from").asText();
             String type = msg.path("type").asText();
             String ts = msg.path("timestamp").asText();
+            String contextId = msg.path("context").path("id").asText(null);
 
-            log.info("WA_INCOMING msgId={} from={} type={}", msgId, from, type);
+            log.info("WA_INCOMING msgId={} from={} type={} contextId={}", msgId, from, type, contextId);
 
-            // ✅ idempotent check
+            // If this is a reply to an outgoing message (has context.id),
+            // attach the user's response to the existing message row instead
+            // of creating a separate INCOMING row.
+            if (contextId != null && !contextId.isBlank()) {
+                Message original = messageRepository
+                        .findByProviderMessageId(contextId)
+                        .orElse(null);
+
+                if (original != null) {
+                    String responseJson = buildUserResponseJson(type, msg);
+                    original.setResponseJson(responseJson);
+                    messageRepository.save(original);
+                    log.info("WA_RESPONSE_ATTACHED originalMsgId={} replyMsgId={}", contextId, msgId);
+                    continue;
+                }
+            }
+
+            // ✅ idempotent check for stand‑alone incoming messages
             if (messageRepository.existsByProviderMessageId(msgId)) {
                 log.warn("WA_DUPLICATE_MESSAGE msgId={}", msgId);
                 continue;
@@ -138,13 +157,7 @@ public class WebhookService {
             m.setProviderMessageId(msgId);
             m.setStatus(Message.Status.DELIVERED);
             m.setPayloadJson(msg.toString());
-
-            // parse content
-            if ("text".equals(type)) {
-                String body = msg.path("text").path("body").asText();
-//                m.setResponseJson(body);
-                log.info("WA_TEXT_BODY msgId={} text={}", msgId, body);
-            }
+            m.setResponseJson(buildUserResponseJson(type, msg));
 
             messageRepository.save(m);
 
@@ -227,6 +240,46 @@ public class WebhookService {
                 });
     }
 
+
+    /**
+     * Build a compact JSON representation of the user's response so that
+     * downstream reporting (e.g. campaign CSV export) can easily read it.
+     */
+    private String buildUserResponseJson(String type, JsonNode msg) {
+        try {
+            switch (type) {
+                case "text": {
+                    String body = msg.path("text").path("body").asText(null);
+                    log.info("WA_TEXT_BODY msgId={} text={}", msg.path("id").asText(), body);
+                    return objectMapper.writeValueAsString(Map.of(
+                            "type", "text",
+                            "text", body
+                    ));
+                }
+                case "button": {
+                    JsonNode button = msg.path("button");
+                    String text = button.path("text").asText(null);
+                    String payload = button.path("payload").asText(null);
+                    log.info("WA_BUTTON_REPLY msgId={} text={} payload={}",
+                            msg.path("id").asText(), text, payload);
+                    return objectMapper.writeValueAsString(Map.of(
+                            "type", "button",
+                            "text", text,
+                            "payload", payload
+                    ));
+                }
+                default:
+                    // Generic fallback for other message types (image, interactive, etc.)
+                    return objectMapper.writeValueAsString(Map.of(
+                            "type", type,
+                            "raw", msg
+                    ));
+            }
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize user response for msgId={}", msg.path("id").asText(), e);
+            return null;
+        }
+    }
 
 }
 
