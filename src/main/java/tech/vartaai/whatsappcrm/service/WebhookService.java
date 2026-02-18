@@ -26,17 +26,20 @@ public class WebhookService {
     private final ClientRepository clientRepository;
     private final ContactRepository contactRepository;
     private final MessageRepository messageRepository;
+    private final AutoReplyService autoReplyService;
 
     public WebhookService(WebhookEventRepository webhookEventRepository, 
                           ObjectMapper objectMapper,
                           ClientRepository clientRepository,
                           ContactRepository contactRepository,
-                          MessageRepository messageRepository) {
+                          MessageRepository messageRepository,
+                          AutoReplyService autoReplyService) {
         this.webhookEventRepository = webhookEventRepository;
         this.objectMapper = objectMapper;
         this.clientRepository = clientRepository;
         this.contactRepository = contactRepository;
         this.messageRepository = messageRepository;
+        this.autoReplyService = autoReplyService;
     }
 
     @Transactional
@@ -119,8 +122,9 @@ public class WebhookService {
             String msgId = msg.path("id").asText();
             String from = msg.path("from").asText();
             String type = msg.path("type").asText();
-            String ts = msg.path("timestamp").asText();
             String contextId = msg.path("context").path("id").asText(null);
+            String responseJson = buildUserResponseJson(type, msg);
+            String targetPhone = (from != null && !from.isBlank()) ? from : waId;
 
             log.info("WA_INCOMING msgId={} from={} type={} contextId={}", msgId, from, type, contextId);
 
@@ -133,10 +137,15 @@ public class WebhookService {
                         .orElse(null);
 
                 if (original != null) {
-                    String responseJson = buildUserResponseJson(type, msg);
+                    if (responseJson != null && responseJson.equals(original.getResponseJson())) {
+                        log.info("WA_RESPONSE_DUPLICATE originalMsgId={} replyMsgId={}", contextId, msgId);
+                        continue;
+                    }
                     original.setResponseJson(responseJson);
                     messageRepository.save(original);
                     log.info("WA_RESPONSE_ATTACHED originalMsgId={} replyMsgId={}", contextId, msgId);
+
+                    triggerAutoReplySafely(client, targetPhone, type, msg, msgId);
                     continue;
                 }
             }
@@ -157,14 +166,13 @@ public class WebhookService {
             m.setProviderMessageId(msgId);
             m.setStatus(Message.Status.DELIVERED);
             m.setPayloadJson(msg.toString());
-            m.setResponseJson(buildUserResponseJson(type, msg));
+            m.setResponseJson(responseJson);
 
             messageRepository.save(m);
 
             log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
 
-            // optional auto reply
-//            autoReplyLogic(m, contact, client);
+            triggerAutoReplySafely(client, targetPhone, type, msg, msgId);
         }
     }
 
@@ -175,7 +183,6 @@ public class WebhookService {
             String msgId = status.path("id").asText();
             String state = status.path("status").asText();
             String recipient = status.path("recipient_id").asText();
-            String ts = status.path("timestamp").asText();
 
             log.info("WA_STATUS msgId={} status={} recipient={}",
                     msgId, state, recipient);
@@ -249,7 +256,7 @@ public class WebhookService {
         try {
             switch (type) {
                 case "text": {
-                    String body = msg.path("text").path("body").asText(null);
+                    String body = msg.path("text").path("body").asText("");
                     log.info("WA_TEXT_BODY msgId={} text={}", msg.path("id").asText(), body);
                     return objectMapper.writeValueAsString(Map.of(
                             "type", "text",
@@ -258,14 +265,42 @@ public class WebhookService {
                 }
                 case "button": {
                     JsonNode button = msg.path("button");
-                    String text = button.path("text").asText(null);
-                    String payload = button.path("payload").asText(null);
+                    String text = button.path("text").asText("");
+                    String payload = button.path("payload").asText("");
                     log.info("WA_BUTTON_REPLY msgId={} text={} payload={}",
                             msg.path("id").asText(), text, payload);
                     return objectMapper.writeValueAsString(Map.of(
                             "type", "button",
                             "text", text,
                             "payload", payload
+                    ));
+                }
+                case "interactive": {
+                    JsonNode interactive = msg.path("interactive");
+                    String interactiveType = interactive.path("type").asText("");
+
+                    if ("button_reply".equals(interactiveType)) {
+                        JsonNode buttonReply = interactive.path("button_reply");
+                        return objectMapper.writeValueAsString(Map.of(
+                                "type", "interactive",
+                                "interactiveType", "button_reply",
+                                "id", buttonReply.path("id").asText(""),
+                                "title", buttonReply.path("title").asText("")
+                        ));
+                    }
+                    if ("list_reply".equals(interactiveType)) {
+                        JsonNode listReply = interactive.path("list_reply");
+                        return objectMapper.writeValueAsString(Map.of(
+                                "type", "interactive",
+                                "interactiveType", "list_reply",
+                                "id", listReply.path("id").asText(""),
+                                "title", listReply.path("title").asText(""),
+                                "description", listReply.path("description").asText("")
+                        ));
+                    }
+                    return objectMapper.writeValueAsString(Map.of(
+                            "type", "interactive",
+                            "raw", interactive
                     ));
                 }
                 default:
@@ -278,6 +313,14 @@ public class WebhookService {
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize user response for msgId={}", msg.path("id").asText(), e);
             return null;
+        }
+    }
+
+    private void triggerAutoReplySafely(Client client, String targetPhone, String type, JsonNode msg, String msgId) {
+        try {
+            autoReplyService.processIncoming(client, targetPhone, type, msg);
+        } catch (Exception e) {
+            log.error("AUTO_REPLY_FAILED msgId={} reason={}", msgId, e.getMessage(), e);
         }
     }
 

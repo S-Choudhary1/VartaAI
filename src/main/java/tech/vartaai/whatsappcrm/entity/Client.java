@@ -34,6 +34,9 @@ public class Client {
     @Column(name = "language", length = 32)
     private String language;
 
+    @Column(name = "auto_reply_enabled", nullable = false)
+    private boolean autoReplyEnabled = false;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -61,6 +64,8 @@ public class Client {
     public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
     public String getLanguage() { return language; }
     public void setLanguage(String language) { this.language = language; }
+    public boolean isAutoReplyEnabled() { return autoReplyEnabled; }
+    public void setAutoReplyEnabled(boolean autoReplyEnabled) { this.autoReplyEnabled = autoReplyEnabled; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

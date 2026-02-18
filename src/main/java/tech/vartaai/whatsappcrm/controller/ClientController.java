@@ -10,6 +10,7 @@ import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @RestController
@@ -33,7 +34,8 @@ public class ClientController {
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Client> getClientById(@PathVariable UUID id) {
-        return clientRepository.findById(id)
+        UUID safeId = Objects.requireNonNull(id, "Client id is required");
+        return clientRepository.findById(safeId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -52,11 +54,13 @@ public class ClientController {
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Client> updateClient(@PathVariable UUID id, @Valid @RequestBody Client clientDetails) {
-        return clientRepository.findById(id).map(client -> {
+        UUID safeId = Objects.requireNonNull(id, "Client id is required");
+        return clientRepository.findById(safeId).map(client -> {
             client.setName(clientDetails.getName());
             client.setPhoneNumberId(clientDetails.getPhoneNumberId());
             client.setWabaId(clientDetails.getWabaId());
             client.setLanguage(clientDetails.getLanguage());
+            client.setAutoReplyEnabled(clientDetails.isAutoReplyEnabled());
             if (clientDetails.getAccessToken() != null && !clientDetails.getAccessToken().isEmpty()) {
                 client.setAccessToken(clientDetails.getAccessToken());
             }
@@ -67,8 +71,9 @@ public class ClientController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> deleteClient(@PathVariable UUID id) {
-        if (clientRepository.existsById(id)) {
-            clientRepository.deleteById(id);
+        UUID safeId = Objects.requireNonNull(id, "Client id is required");
+        if (clientRepository.existsById(safeId)) {
+            clientRepository.deleteById(safeId);
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.notFound().build();

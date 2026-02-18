@@ -73,9 +73,31 @@ docker-compose up --build
 - `POST /api/v1/campaigns/upload-csv` - Upload CSV for bulk send
 - `GET /api/v1/campaigns/{id}` - Get campaign status
 
+### Auto Replies
+- `POST /api/v1/auto-replies` - Create auto-reply rule (Admin/Manager)
+- `GET /api/v1/auto-replies` - List auto-reply rules
+- `GET /api/v1/auto-replies/feature-flag` - Get auto-reply feature flag for current client
+- `PATCH /api/v1/auto-replies/feature-flag` - Enable/disable auto-reply feature (Admin/Manager)
+- `GET /api/v1/auto-replies/{id}` - Get auto-reply rule by id
+- `PUT /api/v1/auto-replies/{id}` - Update auto-reply rule (Admin/Manager)
+- `PATCH /api/v1/auto-replies/{id}/status` - Enable/disable auto-reply rule (Admin/Manager)
+- `DELETE /api/v1/auto-replies/{id}` - Delete auto-reply rule (Admin/Manager)
+
 ### Webhooks
 - `GET /api/v1/webhooks/whatsapp` - Meta verification
 - `POST /api/v1/webhooks/whatsapp` - Receive events
+
+Auto-reply rules are client-scoped and support:
+- exact text match (`TEXT_EXACT`)
+- button payload match (`BUTTON_PAYLOAD`)
+- interactive reply id match (`INTERACTIVE_REPLY_ID`)
+- default fallback (`DEFAULT`)
+
+Feature flag:
+- Auto-reply execution runs only when client flag is enabled (`auto_reply_enabled = true`).
+
+Detailed API docs for UI:
+- `docs/auto-reply-api.md`
 
 ### Health
 - `GET /actuator/health` - Health check
