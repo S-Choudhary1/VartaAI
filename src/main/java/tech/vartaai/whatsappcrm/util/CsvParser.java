@@ -43,7 +43,7 @@ public class CsvParser {
                 else if (rec.isMapped("mobile")) phone = rec.get("mobile");
                 
                 if (phone == null || phone.isBlank()) {
-                    continue; // skip invalid rows
+                    throw new RuntimeException("Phone number is empty on row " + rec.getRecordNumber());
                 }
                 
                 Row row = new Row();

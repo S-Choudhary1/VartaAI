@@ -137,8 +137,8 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
 
             return new SendResponse(providerMessageId, "SENT");
         } catch (Exception e) {
-            log.error("error " , e);
-            return  new SendResponse("providerMessageId", "FAILED");
+            log.error("error {}" , e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 
@@ -170,8 +170,8 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
                 : null;
             return new SendResponse(providerMessageId, "SENT");
         } catch (Exception e) {
-            log.error("Failed to send text message to {}: {}", phone, e.getMessage());
-            return new SendResponse(null, "FAILED");
+            log.error("error {}" , e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 

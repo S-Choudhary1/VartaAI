@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import tech.vartaai.whatsappcrm.dto.CampaignDto;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.service.CampaignService;
@@ -50,7 +51,7 @@ public class CampaignController {
     }
 
     @GetMapping
-    public ResponseEntity<java.util.List<Campaign>> getAllCampaigns(@RequestHeader("X-Client-Id") UUID clientId) {
+    public ResponseEntity<java.util.List<CampaignDto>> getAllCampaigns(@RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(campaignService.getAllCampaigns(clientId));
     }
 

@@ -3,8 +3,15 @@ package tech.vartaai.whatsappcrm.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.util.Map;
 
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class TemplateRequest {
 
     @NotBlank(message = "Name is required")
@@ -17,8 +24,7 @@ public class TemplateRequest {
     private String type; // TEXT, MEDIA, INTERACTIVE
 
     @NotNull(message = "Content is required")
-    @JsonProperty("content")
-    private Map<String, Object> content;
+    private String content;
 
     /**
      * Optional language code for this template (e.g. en_US, hi_IN).
@@ -34,17 +40,4 @@ public class TemplateRequest {
      */
     @JsonProperty("interaction_type")
     private String interactionType;
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getProviderTemplateId() { return providerTemplateId; }
-    public void setProviderTemplateId(String providerTemplateId) { this.providerTemplateId = providerTemplateId; }
-    public String getType() { return type; }
-    public void setType(String type) { this.type = type; }
-    public Map<String, Object> getContent() { return content; }
-    public void setContent(Map<String, Object> content) { this.content = content; }
-    public String getLanguageCode() { return languageCode; }
-    public void setLanguageCode(String languageCode) { this.languageCode = languageCode; }
-    public String getInteractionType() { return interactionType; }
-    public void setInteractionType(String interactionType) { this.interactionType = interactionType; }
 }

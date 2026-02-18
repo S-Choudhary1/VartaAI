@@ -2,6 +2,7 @@ package tech.vartaai.whatsappcrm.entity;
 
 import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
 import jakarta.persistence.*;
+import lombok.Data;
 import org.hibernate.annotations.Type;
 
 import java.time.OffsetDateTime;
@@ -9,6 +10,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "templates")
+@Data
 public class Template {
 
     public enum TemplateType { TEXT, MEDIA, INTERACTIVE }
@@ -46,8 +48,8 @@ public class Template {
     @Column(name = "type", nullable = false, length = 50)
     private TemplateType type;
 
-    @Type(JsonBinaryType.class)
-    @Column(name = "content", columnDefinition = "jsonb", nullable = false)
+//    @Type(JsonBinaryType.class)
+    @Column(name = "content", nullable = false)
     private String contentJson;
 
     @Column(name = "created_by")
@@ -64,29 +66,6 @@ public class Template {
         if (id == null) id = UUID.randomUUID();
         if (createdAt == null) createdAt = OffsetDateTime.now();
     }
-
-    public UUID getId() { return id; }
-    public void setId(UUID id) { this.id = id; }
-    public Client getClient() { return client; }
-    public void setClient(Client client) { this.client = client; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getProviderTemplateId() { return providerTemplateId; }
-    public void setProviderTemplateId(String providerTemplateId) { this.providerTemplateId = providerTemplateId; }
-    public String getLanguageCode() { return languageCode; }
-    public void setLanguageCode(String languageCode) { this.languageCode = languageCode; }
-    public String getInteractionType() { return interactionType; }
-    public void setInteractionType(String interactionType) { this.interactionType = interactionType; }
-    public TemplateType getType() { return type; }
-    public void setType(TemplateType type) { this.type = type; }
-    public String getContentJson() { return contentJson; }
-    public void setContentJson(String contentJson) { this.contentJson = contentJson; }
-    public UUID getCreatedBy() { return createdBy; }
-    public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
-    public OffsetDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
-    public boolean isActive() { return active; }
-    public void setActive(boolean active) { this.active = active; }
 }
 
 

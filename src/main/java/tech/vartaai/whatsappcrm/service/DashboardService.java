@@ -2,6 +2,7 @@ package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
@@ -37,7 +38,7 @@ public class DashboardService {
         
         List<Campaign> allCampaigns = campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId);
         long activeCampaigns = allCampaigns.stream()
-                .filter(c -> c.getStatus() == Campaign.Status.RUNNING || c.getStatus() == Campaign.Status.PENDING)
+                .filter(c -> c.getStatus() == Status.RUNNING || c.getStatus() == Status.PENDING)
                 .count();
         
         List<Message> allMessages = messageRepository.findByClient_Id(clientId);

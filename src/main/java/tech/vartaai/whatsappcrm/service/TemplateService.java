@@ -44,8 +44,8 @@ public class TemplateService {
         template.setCreatedBy(createdBy);
 
         try {
-            template.setContentJson(objectMapper.writeValueAsString(request.getContent()));
-        } catch (JsonProcessingException e) {
+            template.setContentJson(request.getContent());
+        } catch (Exception e) {
             throw new RuntimeException("Failed to serialize template content", e);
         }
 
@@ -124,22 +124,19 @@ public class TemplateService {
 
     private TemplateResponse toResponse(Template template) {
         try {
-            TypeReference<Map<String, Object>> typeRef = new TypeReference<>() {};
-            Map<String, Object> content = objectMapper.readValue(template.getContentJson(), typeRef);
-            
             return new TemplateResponse(
                     template.getId(),
                     template.getName(),
                     template.getProviderTemplateId(),
                     template.getType().name(),
-                    content,
+                    template.getContentJson(),
                     template.getLanguageCode(),
                     template.getInteractionType(),
                     template.getCreatedBy(),
                     template.getCreatedAt(),
                     template.isActive()
             );
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize template content", e);
         }
     }

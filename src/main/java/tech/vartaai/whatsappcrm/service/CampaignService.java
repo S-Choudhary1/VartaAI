@@ -1,10 +1,13 @@
 package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import tech.vartaai.whatsappcrm.dto.CampaignDto;
 import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
+import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
 import tech.vartaai.whatsappcrm.repository.ContactRepository;
@@ -12,10 +15,8 @@ import tech.vartaai.whatsappcrm.util.CsvParser;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import tech.vartaai.whatsappcrm.entity.Client;
 
@@ -23,6 +24,7 @@ import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.repository.MessageRepository;
 
 @Service
+@Slf4j
 public class CampaignService {
 
     private final CampaignRepository campaignRepository;
@@ -56,34 +58,41 @@ public class CampaignService {
             meta.put("totalRows", rows.size());
             meta.put("targets", rows); // Save the actual data!
             Campaign c = new Campaign();
-
+            Integer totalContacts = rows.size();
             Client client = new Client();
             client.setId(clientId);
             c.setClient(client);
-
+            c.setTotalContacts(totalContacts);
             c.setName(name);
             c.setTemplateId(templateId);
             c.setUploadedBy(uploadedBy);
             c.setScheduledAt(scheduledAt);
-            c.setStatus(Campaign.Status.PENDING);
+            c.setStatus(Status.PENDING);
             c.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
             Campaign save = campaignRepository.save(c);
+            int count = 0;
             for(CsvParser.Row row : rows) {
-                messageService.sendMessage(
-                        new SendMessageRequest(
-                                row.getPhone(),
-                                null,
-                                null,
-                                templateId,
-                                row.getVariables(),
-                            "META",
-                                save.getId().toString()
-                        ),
-                        clientId
-                );
+                try {
+                    messageService.sendMessage(
+                            new SendMessageRequest(
+                                    row.getPhone(),
+                                    null,
+                                    null,
+                                    templateId,
+                                    row.getVariables(),
+                                    "META",
+                                    save.getId().toString()
+                            ),
+                            clientId
+                    );
+                    count++;
+                } catch (Exception e) {
+                    log.error("Exception in sending message {}" , row.getPhone());
+                }
             }
-
-            return c;
+            save.setProcessedContacts(count);
+            campaignRepository.save(save);
+            return save;
         } catch (IOException e) {
             throw new RuntimeException("Failed to process CSV", e);
         }
@@ -98,8 +107,20 @@ public class CampaignService {
         return c;
     }
 
-    public List<Campaign> getAllCampaigns(UUID clientId) {
-        return campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId);
+    public List<CampaignDto> getAllCampaigns(UUID clientId) {
+        try {
+            List<Campaign> campaignList = campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId);
+            List<CampaignDto> resultList = new ArrayList<>();
+            for (Campaign campaign : campaignList) {
+
+                CampaignDto dto = campaign.toDto();
+                resultList.add(dto);
+            }
+            return resultList;
+        } catch (Exception e) {
+            log.error("Exception in getAllCampaigns {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
     public List<Message> getCampaignMessages(UUID campaignId, UUID clientId) {
@@ -160,13 +181,23 @@ public class CampaignService {
         try {
             Map<?, ?> map = objectMapper.readValue(payloadJson, Map.class);
             Object body = map.get("body");
+            Map<String, String> varibales = (Map<String, String>) map.get("variables");
             if (body instanceof String) {
-                return (String) body;
+                return fillTemplate((String)body, varibales);
             }
             return payloadJson;
         } catch (Exception e) {
             return "";
         }
+    }
+    private String fillTemplate(String template, Map<String, String> values) {
+        String result = template;
+
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            result = result.replace("{{" + entry.getKey() + "}}", entry.getValue());
+        }
+
+        return result;
     }
 
     private String extractUserResponse(String responseJson) {

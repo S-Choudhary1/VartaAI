@@ -3,16 +3,18 @@ package tech.vartaai.whatsappcrm.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
 import jakarta.persistence.*;
+import lombok.Data;
 import org.hibernate.annotations.Type;
+import tech.vartaai.whatsappcrm.dto.CampaignDto;
+import tech.vartaai.whatsappcrm.dto.Status;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "campaigns")
+@Data
 public class Campaign {
-
-    public enum Status { PENDING, RUNNING, COMPLETED, FAILED }
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
@@ -46,30 +48,33 @@ public class Campaign {
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
+    @Column(name = "processed_contacts")
+    private Integer processedContacts;
+
+    @Column(name = "total_contacts")
+    private Integer totalContacts;
+
     @PrePersist
     public void prePersist() {
         if (id == null) id = UUID.randomUUID();
         if (createdAt == null) createdAt = OffsetDateTime.now();
     }
 
-    public UUID getId() { return id; }
-    public void setId(UUID id) { this.id = id; }
-    public Client getClient() { return client; }
-    public void setClient(Client client) { this.client = client; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public UUID getTemplateId() { return templateId; }
-    public void setTemplateId(UUID templateId) { this.templateId = templateId; }
-    public UUID getUploadedBy() { return uploadedBy; }
-    public void setUploadedBy(UUID uploadedBy) { this.uploadedBy = uploadedBy; }
-    public String getCsvMetadataJson() { return csvMetadataJson; }
-    public void setCsvMetadataJson(String csvMetadataJson) { this.csvMetadataJson = csvMetadataJson; }
-    public Status getStatus() { return status; }
-    public void setStatus(Status status) { this.status = status; }
-    public OffsetDateTime getScheduledAt() { return scheduledAt; }
-    public void setScheduledAt(OffsetDateTime scheduledAt) { this.scheduledAt = scheduledAt; }
-    public OffsetDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
+    public CampaignDto toDto() {
+        return CampaignDto.builder()
+                .id(this.id)
+//                .client(this.client)
+                .totalContacts(this.totalContacts)
+                .processedContacts(this.processedContacts)
+                .name(this.name)
+                .templateId(this.templateId)
+                .status(this.status)
+                .uploadedBy(this.uploadedBy)
+                .createdAt(this.createdAt)
+                .scheduledAt(this.scheduledAt)
+                .csvMetadataJson(this.csvMetadataJson)
+                .build();
+    }
 }
 
 

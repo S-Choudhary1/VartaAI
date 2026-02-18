@@ -93,7 +93,9 @@ public class MessageService {
             return resp;
 
         } catch (Exception e) {
-            log.error("Failed to send message to {}", request.getTo(), e);
+            message.setStatus(Message.Status.FAILED);
+            messageRepository.save(message);
+            log.error("Failed to send message to {} {}", request.getTo(), e.getMessage());
             // We do NOT save the message to DB if sending failed, as requested.
             // Or we could save it as FAILED. User requirement said "don't write that messge in our database".
             // However, usually it's better to save as FAILED for audit. 
@@ -111,7 +113,8 @@ public class MessageService {
         }
 
         Map<String, String> vars = request.getVariables() != null ? request.getVariables() : Map.of();
-        
+
+
         // Prepare payload log
         String payload = objectMapper.writeValueAsString(Map.of(
             "type", "template",
@@ -125,6 +128,15 @@ public class MessageService {
         return provider.sendTemplate(client, request.getTo(), template, vars);
     }
 
+    private String fillTemplate(String template, Map<String, String> values) {
+        String result = template;
+
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            result = result.replace("{{" + entry.getKey() + "}}", entry.getValue());
+        }
+
+        return result;
+    }
     private SendResponse sendTextMessage(Client client, SendMessageRequest request, Message message) throws Exception {
         String textBody = request.getText() != null && !request.getText().isEmpty() ? request.getText() : "Hello";
         
