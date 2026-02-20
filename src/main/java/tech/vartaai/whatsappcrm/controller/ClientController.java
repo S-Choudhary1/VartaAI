@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tech.vartaai.whatsappcrm.dto.ClientDto;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
 
@@ -31,9 +32,9 @@ public class ClientController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Client> getClientById(@PathVariable UUID id) {
+    public ResponseEntity<ClientDto> getClientById(@PathVariable UUID id) {
         return clientRepository.findById(id)
+                .map(Client::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

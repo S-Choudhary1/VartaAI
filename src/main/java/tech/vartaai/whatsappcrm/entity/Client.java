@@ -1,11 +1,15 @@
 package tech.vartaai.whatsappcrm.entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
+import tech.vartaai.whatsappcrm.dto.ClientDto;
+
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "clients")
+@Data
 public class Client {
 
     @Id
@@ -46,22 +50,14 @@ public class Client {
             language = "en_US";
         }
     }
-
-    public UUID getId() { return id; }
-    public void setId(UUID id) { this.id = id; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getApiKey() { return apiKey; }
-    public void setApiKey(String apiKey) { this.apiKey = apiKey; }
-    public String getPhoneNumberId() { return phoneNumberId; }
-    public void setPhoneNumberId(String phoneNumberId) { this.phoneNumberId = phoneNumberId; }
-    public String getWabaId() { return wabaId; }
-    public void setWabaId(String wabaId) { this.wabaId = wabaId; }
-    public String getAccessToken() { return accessToken; }
-    public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
-    public String getLanguage() { return language; }
-    public void setLanguage(String language) { this.language = language; }
-    public OffsetDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
+    public ClientDto toDto() {
+        return ClientDto.builder()
+                .id(this.id.toString())
+                .name(this.name)
+                .wabaId(this.wabaId)
+                .phoneNumberId(this.phoneNumberId)
+                .createdAt(this.createdAt)
+                .build();
+    }
 }
 
