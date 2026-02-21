@@ -9,12 +9,16 @@ import org.springframework.transaction.annotation.Transactional;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Contact;
 import tech.vartaai.whatsappcrm.entity.Message;
+import tech.vartaai.whatsappcrm.entity.Template;
 import tech.vartaai.whatsappcrm.entity.WebhookEvent;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
 import tech.vartaai.whatsappcrm.repository.ContactRepository;
 import tech.vartaai.whatsappcrm.repository.MessageRepository;
+import tech.vartaai.whatsappcrm.repository.TemplateRepository;
 import tech.vartaai.whatsappcrm.repository.WebhookEventRepository;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -26,17 +30,20 @@ public class WebhookService {
     private final ClientRepository clientRepository;
     private final ContactRepository contactRepository;
     private final MessageRepository messageRepository;
+    private final TemplateRepository templateRepository;
 
     public WebhookService(WebhookEventRepository webhookEventRepository, 
                           ObjectMapper objectMapper,
                           ClientRepository clientRepository,
                           ContactRepository contactRepository,
-                          MessageRepository messageRepository) {
+                          MessageRepository messageRepository,
+                          TemplateRepository templateRepository) {
         this.webhookEventRepository = webhookEventRepository;
         this.objectMapper = objectMapper;
         this.clientRepository = clientRepository;
         this.contactRepository = contactRepository;
         this.messageRepository = messageRepository;
+        this.templateRepository = templateRepository;
     }
 
     @Transactional
@@ -68,31 +75,37 @@ public class WebhookService {
 
                 log.info("WA_CHANGE field={}", field);
 
-                if (!"messages".equals(field)) {
-                    log.info("WA_SKIP unsupported field={}", field);
-                    continue;
-                }
-
-                String phoneNumberId = value.path("metadata")
-                        .path("phone_number_id").asText();
-
-                Client client = clientRepository
-                        .findByPhoneNumberId(phoneNumberId)
-                        .orElse(null);
+                Client client = resolveClient(entry, value, field);
 
                 if (client == null) {
-                    log.warn("WA_CLIENT_NOT_FOUND phoneNumberId={}", phoneNumberId);
+                    log.warn("WA_CLIENT_NOT_FOUND field={} entryId={}", field, entry.path("id").asText(null));
                     continue;
                 }
 
                 log.info("WA_CLIENT_RESOLVED clientId={}", client.getId());
 
-                if (value.has("messages")) {
-                    handleIncomingMessages(value, client);
-                }
-
-                if (value.has("statuses")) {
-                    handleStatusReceipts(value);
+                switch (field) {
+                    case "messages":
+                        if (value.has("messages")) {
+                            handleIncomingMessages(value, client);
+                        }
+                        if (value.has("statuses")) {
+                            handleStatusReceipts(value);
+                        }
+                        break;
+                    case "message_template_status_update":
+                        handleTemplateStatusUpdate(value, client);
+                        break;
+                    case "message_template_quality_update":
+                        handleTemplateQualityUpdate(value, client);
+                        break;
+                    case "message_template_components_update":
+                        handleTemplateComponentsUpdate(value, client);
+                        break;
+                    default:
+                        // Persisted via persistEvent already. Keep unknown fields non-fatal.
+                        log.info("WA_SKIP unsupported field={}", field);
+                        break;
                 }
             }
         }
@@ -103,15 +116,11 @@ public class WebhookService {
         JsonNode contactsNode = value.path("contacts");
 
         String contactName = null;
-        String waId = null;
 
         if (contactsNode.isArray() && contactsNode.size() > 0) {
             contactName = contactsNode.get(0)
                     .path("profile")
                     .path("name").asText(null);
-
-            waId = contactsNode.get(0)
-                    .path("wa_id").asText(null);
         }
 
         for (JsonNode msg : value.get("messages")) {
@@ -119,7 +128,6 @@ public class WebhookService {
             String msgId = msg.path("id").asText();
             String from = msg.path("from").asText();
             String type = msg.path("type").asText();
-            String ts = msg.path("timestamp").asText();
             String contextId = msg.path("context").path("id").asText(null);
 
             log.info("WA_INCOMING msgId={} from={} type={} contextId={}", msgId, from, type, contextId);
@@ -155,6 +163,8 @@ public class WebhookService {
             m.setDirection(Message.Direction.INCOMING);
             m.setProvider("META");
             m.setProviderMessageId(msgId);
+            m.setContextMessageId(contextId);
+            m.setMessageType(Message.MessageType.fromValue(type));
             m.setStatus(Message.Status.DELIVERED);
             m.setPayloadJson(msg.toString());
             m.setResponseJson(buildUserResponseJson(type, msg));
@@ -175,7 +185,6 @@ public class WebhookService {
             String msgId = status.path("id").asText();
             String state = status.path("status").asText();
             String recipient = status.path("recipient_id").asText();
-            String ts = status.path("timestamp").asText();
 
             log.info("WA_STATUS msgId={} status={} recipient={}",
                     msgId, state, recipient);
@@ -204,6 +213,10 @@ public class WebhookService {
 
                 case "failed":
                     msg.setStatus(Message.Status.FAILED);
+                    msg.setError(extractStatusError(status));
+                    break;
+                default:
+                    msg.setStatus(Message.Status.UNKNOWN);
                     break;
             }
 
@@ -251,10 +264,10 @@ public class WebhookService {
                 case "text": {
                     String body = msg.path("text").path("body").asText(null);
                     log.info("WA_TEXT_BODY msgId={} text={}", msg.path("id").asText(), body);
-                    return objectMapper.writeValueAsString(Map.of(
-                            "type", "text",
-                            "text", body
-                    ));
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "text");
+                    normalized.put("text", body);
+                    return objectMapper.writeValueAsString(normalized);
                 }
                 case "button": {
                     JsonNode button = msg.path("button");
@@ -262,23 +275,216 @@ public class WebhookService {
                     String payload = button.path("payload").asText(null);
                     log.info("WA_BUTTON_REPLY msgId={} text={} payload={}",
                             msg.path("id").asText(), text, payload);
-                    return objectMapper.writeValueAsString(Map.of(
-                            "type", "button",
-                            "text", text,
-                            "payload", payload
-                    ));
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "button");
+                    normalized.put("text", text);
+                    normalized.put("payload", payload);
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "interactive": {
+                    JsonNode interactive = msg.path("interactive");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "interactive");
+                    normalized.put("interactiveType", interactive.path("type").asText(null));
+                    if (interactive.has("button_reply")) {
+                        JsonNode buttonReply = interactive.path("button_reply");
+                        normalized.put("id", buttonReply.path("id").asText(null));
+                        normalized.put("title", buttonReply.path("title").asText(null));
+                    }
+                    if (interactive.has("list_reply")) {
+                        JsonNode listReply = interactive.path("list_reply");
+                        normalized.put("id", listReply.path("id").asText(null));
+                        normalized.put("title", listReply.path("title").asText(null));
+                        normalized.put("description", listReply.path("description").asText(null));
+                    }
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "reaction": {
+                    JsonNode reaction = msg.path("reaction");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "reaction");
+                    normalized.put("emoji", reaction.path("emoji").asText(null));
+                    normalized.put("messageId", reaction.path("message_id").asText(null));
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "image":
+                case "video":
+                case "audio":
+                case "document":
+                case "sticker": {
+                    JsonNode media = msg.path(type);
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", type);
+                    normalized.put("id", media.path("id").asText(null));
+                    normalized.put("mimeType", media.path("mime_type").asText(null));
+                    normalized.put("sha256", media.path("sha256").asText(null));
+                    normalized.put("caption", media.path("caption").asText(null));
+                    normalized.put("filename", media.path("filename").asText(null));
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "location": {
+                    JsonNode location = msg.path("location");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "location");
+                    normalized.put("latitude", location.path("latitude").asDouble());
+                    normalized.put("longitude", location.path("longitude").asDouble());
+                    normalized.put("name", location.path("name").asText(null));
+                    normalized.put("address", location.path("address").asText(null));
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "contacts": {
+                    JsonNode contacts = msg.path("contacts");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "contacts");
+                    normalized.put("contacts", contacts);
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "order": {
+                    JsonNode order = msg.path("order");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "order");
+                    normalized.put("catalogId", order.path("catalog_id").asText(null));
+                    normalized.put("text", order.path("text").asText(null));
+                    normalized.put("productItems", order.path("product_items"));
+                    return objectMapper.writeValueAsString(normalized);
+                }
+                case "system": {
+                    JsonNode system = msg.path("system");
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", "system");
+                    normalized.put("body", system.path("body").asText(null));
+                    normalized.put("identity", system.path("identity").asText(null));
+                    normalized.put("newWaId", system.path("new_wa_id").asText(null));
+                    normalized.put("waId", system.path("wa_id").asText(null));
+                    return objectMapper.writeValueAsString(normalized);
                 }
                 default:
                     // Generic fallback for other message types (image, interactive, etc.)
-                    return objectMapper.writeValueAsString(Map.of(
-                            "type", type,
-                            "raw", msg
-                    ));
+                    Map<String, Object> fallback = new HashMap<>();
+                    fallback.put("type", type);
+                    fallback.put("raw", msg);
+                    return objectMapper.writeValueAsString(fallback);
             }
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize user response for msgId={}", msg.path("id").asText(), e);
             return null;
         }
+    }
+
+    private Client resolveClient(JsonNode entry, JsonNode value, String field) {
+        if ("messages".equals(field)) {
+            String phoneNumberId = value.path("metadata").path("phone_number_id").asText(null);
+            if (phoneNumberId != null && !phoneNumberId.isBlank()) {
+                return clientRepository.findByPhoneNumberId(phoneNumberId).orElse(null);
+            }
+        }
+        String wabaId = entry.path("id").asText(null);
+        if (wabaId != null && !wabaId.isBlank()) {
+            return clientRepository.findByWabaId(wabaId).orElse(null);
+        }
+        return null;
+    }
+
+    private void handleTemplateStatusUpdate(JsonNode value, Client client) {
+        Template template = resolveTemplateFromWebhook(value, client);
+        if (template == null) {
+            log.warn("WA_TEMPLATE_STATUS_NO_MATCH clientId={} value={}", client.getId(), value);
+            return;
+        }
+
+        String nextStatus = firstNonBlank(
+                value.path("event").asText(null),
+                value.path("message_template_status").asText(null),
+                value.path("status").asText(null)
+        );
+        if (nextStatus != null) {
+            template.setStatus(Template.TemplateStatus.fromValue(nextStatus));
+        }
+        templateRepository.save(template);
+        log.info("WA_TEMPLATE_STATUS_UPDATED template={} status={}", template.getName(), nextStatus);
+    }
+
+    private void handleTemplateQualityUpdate(JsonNode value, Client client) {
+        Template template = resolveTemplateFromWebhook(value, client);
+        if (template == null) {
+            log.warn("WA_TEMPLATE_QUALITY_NO_MATCH clientId={} value={}", client.getId(), value);
+            return;
+        }
+
+        String quality = firstNonBlank(
+                value.path("new_quality_score").asText(null),
+                value.path("quality_score").asText(null),
+                value.path("event").asText(null)
+        );
+        if (quality != null) {
+            template.setQualityRating(Template.QualityRating.fromValue(quality));
+        }
+        templateRepository.save(template);
+        log.info("WA_TEMPLATE_QUALITY_UPDATED template={} quality={}", template.getName(), quality);
+    }
+
+    private void handleTemplateComponentsUpdate(JsonNode value, Client client) {
+        Template template = resolveTemplateFromWebhook(value, client);
+        if (template == null) {
+            log.warn("WA_TEMPLATE_COMPONENTS_NO_MATCH clientId={} value={}", client.getId(), value);
+            return;
+        }
+
+        try {
+            template.setRawTemplateJson(objectMapper.writeValueAsString(value));
+            if (value.has("components")) {
+                template.setComponentsJson(objectMapper.writeValueAsString(value.get("components")));
+            }
+            templateRepository.save(template);
+            log.info("WA_TEMPLATE_COMPONENTS_UPDATED template={}", template.getName());
+        } catch (JsonProcessingException e) {
+            log.error("Failed to save template components update", e);
+        }
+    }
+
+    private Template resolveTemplateFromWebhook(JsonNode value, Client client) {
+        String providerTemplateId = firstNonBlank(
+                value.path("message_template_id").asText(null),
+                value.path("template_id").asText(null),
+                value.path("id").asText(null)
+        );
+        if (providerTemplateId != null) {
+            return templateRepository
+                    .findByClient_IdAndProviderTemplateId(client.getId(), providerTemplateId)
+                    .orElse(null);
+        }
+
+        String templateName = firstNonBlank(
+                value.path("message_template_name").asText(null),
+                value.path("template_name").asText(null),
+                value.path("name").asText(null)
+        );
+        if (templateName == null) {
+            return null;
+        }
+        List<Template> templates = templateRepository.findByClient_IdAndName(client.getId(), templateName);
+        return templates.isEmpty() ? null : templates.get(0);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String extractStatusError(JsonNode status) {
+        JsonNode errors = status.path("errors");
+        if (!errors.isArray() || errors.isEmpty()) {
+            return null;
+        }
+        JsonNode first = errors.get(0);
+        String title = first.path("title").asText("");
+        String message = first.path("message").asText("");
+        String code = first.path("code").asText("");
+        return (code + " " + title + " " + message).trim();
     }
 
 }

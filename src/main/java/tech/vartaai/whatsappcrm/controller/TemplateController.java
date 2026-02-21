@@ -5,8 +5,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateResponse;
+import tech.vartaai.whatsappcrm.dto.TemplateV2Request;
 import tech.vartaai.whatsappcrm.service.TemplateService;
 
 import java.util.List;
@@ -36,6 +38,12 @@ public class TemplateController {
         return ResponseEntity.ok(templateService.getAllTemplates(clientId));
     }
 
+    @GetMapping("/meta/approved")
+    public ResponseEntity<List<MetaTemplateResponse>> getApprovedTemplatesFromMeta(
+            @RequestHeader("X-Client-Id") UUID clientId) {
+        return ResponseEntity.ok(templateService.getApprovedTemplatesFromMeta(clientId));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<TemplateResponse> getTemplateById(@PathVariable UUID id, @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(templateService.getTemplateById(id, clientId));
@@ -47,6 +55,22 @@ public class TemplateController {
                                                            @Valid @RequestBody TemplateRequest request,
                                                            @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(templateService.updateTemplate(id, request, clientId));
+    }
+
+    @PostMapping("/v2")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<TemplateResponse> createTemplateV2(@Valid @RequestBody TemplateV2Request request,
+                                                             @RequestHeader("X-Client-Id") UUID clientId) {
+        TemplateResponse response = templateService.createTemplateV2(request, UUID.randomUUID(), clientId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PutMapping("/v2/{id}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<TemplateResponse> updateTemplateV2(@PathVariable UUID id,
+                                                             @Valid @RequestBody TemplateV2Request request,
+                                                             @RequestHeader("X-Client-Id") UUID clientId) {
+        return ResponseEntity.ok(templateService.updateTemplateV2(id, request, clientId));
     }
 
     @DeleteMapping("/{id}")

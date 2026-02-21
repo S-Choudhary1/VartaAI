@@ -77,6 +77,7 @@ public class MessageService {
         message.setDirection(Message.Direction.OUTGOING);
         message.setProvider("META");
         message.setCampaignId(request.getCampaignId());
+        message.setStatus(Message.Status.QUEUED);
 
         try {
             if (request.getTemplateId() != null) {
@@ -124,19 +125,11 @@ public class MessageService {
             "body", template.getContentJson()
         ));
         message.setPayloadJson(payload);
+        message.setMessageType(Message.MessageType.TEMPLATE);
 
         return provider.sendTemplate(client, request.getTo(), template, vars);
     }
 
-    private String fillTemplate(String template, Map<String, String> values) {
-        String result = template;
-
-        for (Map.Entry<String, String> entry : values.entrySet()) {
-            result = result.replace("{{" + entry.getKey() + "}}", entry.getValue());
-        }
-
-        return result;
-    }
     private SendResponse sendTextMessage(Client client, SendMessageRequest request, Message message) throws Exception {
         String textBody = request.getText() != null && !request.getText().isEmpty() ? request.getText() : "Hello";
         
@@ -146,6 +139,7 @@ public class MessageService {
             "body", textBody
         ));
         message.setPayloadJson(payload);
+        message.setMessageType(Message.MessageType.TEXT);
 
         return provider.sendText(client, request.getTo(), textBody);
     }

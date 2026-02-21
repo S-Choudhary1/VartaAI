@@ -13,7 +13,100 @@ import java.util.UUID;
 @Data
 public class Template {
 
-    public enum TemplateType { TEXT, MEDIA, INTERACTIVE }
+    /**
+     * High-level template format maintained by this application.
+     */
+    public enum TemplateType {
+        TEXT,
+        MEDIA,
+        INTERACTIVE,
+        AUTHENTICATION,
+        LOCATION,
+        PRODUCT,
+        CATALOG,
+        CAROUSEL,
+        FLOW,
+        ORDER_DETAILS,
+        CUSTOM;
+
+        public static TemplateType fromValue(String value) {
+            if (value == null || value.isBlank()) {
+                return CUSTOM;
+            }
+
+            String normalized = value.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+            try {
+                return TemplateType.valueOf(normalized);
+            } catch (IllegalArgumentException ignored) {
+                return CUSTOM;
+            }
+        }
+    }
+
+    public enum TemplateCategory {
+        MARKETING,
+        UTILITY,
+        AUTHENTICATION,
+        UNKNOWN;
+
+        public static TemplateCategory fromValue(String value) {
+            if (value == null || value.isBlank()) {
+                return UNKNOWN;
+            }
+
+            String normalized = value.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+            try {
+                return TemplateCategory.valueOf(normalized);
+            } catch (IllegalArgumentException ignored) {
+                return UNKNOWN;
+            }
+        }
+    }
+
+    public enum TemplateStatus {
+        DRAFT,
+        PENDING,
+        IN_REVIEW,
+        APPROVED,
+        REJECTED,
+        PAUSED,
+        DISABLED,
+        PENDING_DELETION,
+        UNKNOWN;
+
+        public static TemplateStatus fromValue(String value) {
+            if (value == null || value.isBlank()) {
+                return UNKNOWN;
+            }
+
+            String normalized = value.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+            try {
+                return TemplateStatus.valueOf(normalized);
+            } catch (IllegalArgumentException ignored) {
+                return UNKNOWN;
+            }
+        }
+    }
+
+    public enum QualityRating {
+        GREEN,
+        YELLOW,
+        RED,
+        UNKNOWN;
+
+        public static QualityRating fromValue(String value) {
+            if (value == null || value.isBlank()) {
+                return UNKNOWN;
+            }
+
+            String normalized = value.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+            try {
+                return QualityRating.valueOf(normalized);
+            } catch (IllegalArgumentException ignored) {
+                return UNKNOWN;
+            }
+        }
+    }
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
@@ -48,9 +141,35 @@ public class Template {
     @Column(name = "type", nullable = false, length = 50)
     private TemplateType type;
 
-//    @Type(JsonBinaryType.class)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", length = 50)
+    private TemplateCategory category = TemplateCategory.UNKNOWN;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 50)
+    private TemplateStatus status = TemplateStatus.DRAFT;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "quality_rating", length = 20)
+    private QualityRating qualityRating = QualityRating.UNKNOWN;
+
+    @Column(name = "allow_category_change")
+    private Boolean allowCategoryChange;
+
     @Column(name = "content", nullable = false)
     private String contentJson;
+
+    @Type(JsonBinaryType.class)
+    @Column(name = "components", columnDefinition = "jsonb")
+    private String componentsJson;
+
+    @Type(JsonBinaryType.class)
+    @Column(name = "example_values", columnDefinition = "jsonb")
+    private String exampleValuesJson;
+
+    @Type(JsonBinaryType.class)
+    @Column(name = "raw_template", columnDefinition = "jsonb")
+    private String rawTemplateJson;
 
     @Column(name = "created_by")
     private UUID createdBy;
@@ -60,6 +179,9 @@ public class Template {
 
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
+
+    @Column(name = "last_synced_at")
+    private OffsetDateTime lastSyncedAt;
 
     @PrePersist
     public void prePersist() {

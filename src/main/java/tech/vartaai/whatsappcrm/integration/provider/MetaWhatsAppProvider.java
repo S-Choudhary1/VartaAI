@@ -6,10 +6,12 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import tech.vartaai.whatsappcrm.config.WhatsAppProperties;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Template;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -18,10 +20,8 @@ import java.util.Map;
 public class MetaWhatsAppProvider implements WhatsAppProvider {
 
     private final WebClient webClient;
-    private final WhatsAppProperties props;
 
     public MetaWhatsAppProvider(WhatsAppProperties props) {
-        this.props = props;
         this.webClient = WebClient.builder()
                 .baseUrl(props.getApiBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + props.getAccessToken())
@@ -172,6 +172,56 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
         } catch (Exception e) {
             log.error("error {}" , e.getMessage());
             throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public List<MetaTemplateResponse> getApprovedTemplates(Client client) {
+        String wabaId = client.getWabaId();
+        String accessToken = client.getAccessToken();
+
+        if (wabaId == null || wabaId.isBlank()) {
+            throw new RuntimeException("Client WABA ID is missing");
+        }
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new RuntimeException("Client access token is missing");
+        }
+
+        try {
+            JsonNode response = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/" + wabaId + "/message_templates")
+                            .queryParam("fields", "id,name,status,category,language,quality_score")
+                            .queryParam("limit", 255)
+                            .build())
+                    .header("Authorization", "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            if (response == null || !response.has("data") || !response.get("data").isArray()) {
+                return Collections.emptyList();
+            }
+
+            List<MetaTemplateResponse> approved = new ArrayList<>();
+            for (JsonNode item : response.get("data")) {
+                String status = item.path("status").asText("");
+                if (!"APPROVED".equalsIgnoreCase(status)) {
+                    continue;
+                }
+                approved.add(new MetaTemplateResponse(
+                        item.path("id").asText(null),
+                        item.path("name").asText(null),
+                        status,
+                        item.path("category").asText(null),
+                        item.path("language").asText(null),
+                        item.path("quality_score").asText(null)
+                ));
+            }
+            return approved;
+        } catch (Exception e) {
+            log.error("Failed to fetch approved templates from Meta: {}", e.getMessage());
+            throw new RuntimeException("Failed to fetch approved templates from Meta", e);
         }
     }
 
