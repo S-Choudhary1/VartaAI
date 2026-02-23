@@ -376,18 +376,20 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
 
             List<MetaTemplateResponse> templates = new ArrayList<>();
             for (JsonNode item : response.get("data")) {
-                templates.add(new MetaTemplateResponse(
-                        item.path("id").asText(null),
-                        item.path("name").asText(null),
-                        item.path("status").asText(null),
-                        item.path("category").asText(null),
-                        item.path("language").asText(null),
-                        item.path("quality_score").asText(null),
-                        item.path("rejection_reason").asText(null),
-                        item.path("specific_rejection_reason").asText(null),
-                        item.path("components"),
-                        item
-                ));
+                if(item.path("status") != null && "APPROVED".equalsIgnoreCase(item.path("status").asText())) {
+                    templates.add(new MetaTemplateResponse(
+                            item.path("id").asText(null),
+                            item.path("name").asText(null),
+                            item.path("status").asText(null),
+                            item.path("category").asText(null),
+                            item.path("language").asText(null),
+                            item.path("quality_score").asText(null),
+                            item.path("rejection_reason").asText(null),
+                            item.path("specific_rejection_reason").asText(null),
+                            item.path("components"),
+                            item
+                    ));
+                }
             }
             JsonNode paging = response.path("paging").isMissingNode() ? null : response.path("paging");
             return new MetaTemplateListResponse(templates, paging);
