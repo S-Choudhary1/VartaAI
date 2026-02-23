@@ -14,6 +14,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findByContactId(String contactId);
     List<Message> findByClient_Id(UUID clientId);
     List<Message> findByContactIdAndClient_Id(String contactId, UUID clientId);
+    Optional<Message> findByIdAndClient_Id(UUID id, UUID clientId);
 
     Optional<Message> findByProviderMessageId(String providerMsgId);
 

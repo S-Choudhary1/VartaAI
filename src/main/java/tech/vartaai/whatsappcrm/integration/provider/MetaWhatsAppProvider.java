@@ -2,16 +2,23 @@ package tech.vartaai.whatsappcrm.integration.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.MultipartBodyBuilder;
+import tech.vartaai.whatsappcrm.exception.MediaApiException;
 import tech.vartaai.whatsappcrm.config.WhatsAppProperties;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.entity.Client;
+import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.entity.Template;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -176,6 +183,155 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
     }
 
     @Override
+    public SendResponse sendMedia(Client client, String phone, Message.MessageType messageType, byte[] fileBytes,
+                                  String filename, String mimeType, String caption) {
+        String phoneNumberId = client.getPhoneNumberId();
+        String accessToken = client.getAccessToken();
+
+        try {
+            MultipartBodyBuilder builder = new MultipartBodyBuilder();
+            builder.part("messaging_product", "whatsapp");
+            builder.part("file", new ByteArrayResource(fileBytes) {
+                @Override
+                public String getFilename() {
+                    return filename;
+                }
+            }).contentType(MediaType.parseMediaType(mimeType));
+
+            JsonNode uploadResponse = webClient.post()
+                    .uri(uriBuilder -> uriBuilder.path("/" + phoneNumberId + "/media").build())
+                    .header("Authorization", "Bearer " + accessToken)
+                    .contentType(MediaType.MULTIPART_FORM_DATA)
+                    .bodyValue(builder.build())
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            String mediaId = uploadResponse != null ? uploadResponse.path("id").asText(null) : null;
+            if (mediaId == null || mediaId.isBlank()) {
+                throw new RuntimeException("Failed to upload media to provider");
+            }
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("messaging_product", "whatsapp");
+            payload.put("to", phone);
+            payload.put("type", messageType.name().toLowerCase());
+
+            Map<String, Object> mediaPayload = new HashMap<>();
+            mediaPayload.put("id", mediaId);
+            if (caption != null && !caption.isBlank()) {
+                mediaPayload.put("caption", caption);
+            }
+            if (messageType == Message.MessageType.DOCUMENT && filename != null && !filename.isBlank()) {
+                mediaPayload.put("filename", filename);
+            }
+            payload.put(messageType.name().toLowerCase(), mediaPayload);
+
+            JsonNode sendResponse = webClient.post()
+                    .uri(uriBuilder -> uriBuilder.path("/" + phoneNumberId + "/messages").build())
+                    .header("Authorization", "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            String providerMessageId = sendResponse != null
+                    && sendResponse.has("messages")
+                    && sendResponse.get("messages").isArray()
+                    && sendResponse.get("messages").size() > 0
+                    ? sendResponse.get("messages").get(0).path("id").asText(null)
+                    : null;
+
+            SendResponse response = new SendResponse(providerMessageId, "SENT");
+            response.setMediaId(mediaId);
+            response.setMimeType(mimeType);
+            response.setFilename(filename);
+            return response;
+        } catch (Exception ex) {
+            log.error("WA_MEDIA_SEND_FAILED to={} type={} err={}", phone, messageType, ex.getMessage());
+            throw new RuntimeException("Failed to send media message", ex);
+        }
+    }
+
+    @Override
+    public MediaDownload downloadMedia(Client client, String mediaId, String fallbackMimeType, String fallbackFilename) {
+        String accessToken = client.getAccessToken();
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new MediaApiException(HttpStatus.BAD_GATEWAY, "PROVIDER_MEDIA_FETCH_FAILED",
+                    "Provider credentials are missing for this tenant.");
+        }
+
+        try {
+            JsonNode mediaMeta = webClient.get()
+                    .uri("/" + mediaId)
+                    .header("Authorization", "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            if (mediaMeta == null) {
+                throw new MediaApiException(HttpStatus.NOT_FOUND, "MEDIA_NOT_FOUND",
+                        "Media is unavailable for this message.");
+            }
+
+            String mediaUrl = mediaMeta.path("url").asText(null);
+            if (mediaUrl == null || mediaUrl.isBlank()) {
+                throw new MediaApiException(HttpStatus.NOT_FOUND, "MEDIA_NOT_FOUND",
+                        "Media is unavailable for this message.");
+            }
+
+            String mimeType = firstNonBlank(
+                    mediaMeta.path("mime_type").asText(null),
+                    fallbackMimeType,
+                    MediaType.APPLICATION_OCTET_STREAM_VALUE
+            );
+            String filename = firstNonBlank(
+                    mediaMeta.path("filename").asText(null),
+                    fallbackFilename,
+                    mediaId + extensionFromMime(mimeType)
+            );
+
+            byte[] bytes;
+            try {
+                bytes = webClient.get()
+                        .uri(mediaUrl)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .retrieve()
+                        .bodyToMono(byte[].class)
+                        .block();
+            } catch (WebClientResponseException.NotFound ex) {
+                throw new MediaApiException(HttpStatus.GONE, "MEDIA_GONE",
+                        "Provider URL expired and media is not recoverable.");
+            } catch (WebClientResponseException.Gone ex) {
+                throw new MediaApiException(HttpStatus.GONE, "MEDIA_GONE",
+                        "Provider URL expired and media is not recoverable.");
+            }
+
+            if (bytes == null || bytes.length == 0) {
+                throw new MediaApiException(HttpStatus.NOT_FOUND, "MEDIA_NOT_FOUND",
+                        "Media is unavailable for this message.");
+            }
+
+            return new MediaDownload(bytes, mimeType, filename);
+        } catch (MediaApiException ex) {
+            throw ex;
+        } catch (WebClientResponseException.NotFound ex) {
+            throw new MediaApiException(HttpStatus.NOT_FOUND, "MEDIA_NOT_FOUND",
+                    "Media is unavailable for this message.");
+        } catch (WebClientResponseException.Gone ex) {
+            throw new MediaApiException(HttpStatus.GONE, "MEDIA_GONE",
+                    "Provider URL expired and media is not recoverable.");
+        } catch (WebClientResponseException ex) {
+            throw new MediaApiException(HttpStatus.BAD_GATEWAY, "PROVIDER_MEDIA_FETCH_FAILED",
+                    "Failed to fetch media from provider.");
+        } catch (Exception ex) {
+            throw new MediaApiException(HttpStatus.BAD_GATEWAY, "PROVIDER_MEDIA_FETCH_FAILED",
+                    "Failed to fetch media from provider.");
+        }
+    }
+
+    @Override
     public List<MetaTemplateResponse> getApprovedTemplates(Client client) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();
@@ -229,6 +385,30 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
     public void handleWebhook(JsonNode payload) {
         // Log webhook payload for debugging
         log.debug("Received webhook: {}", payload);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String extensionFromMime(String mimeType) {
+        if (mimeType == null || mimeType.isBlank()) {
+            return "";
+        }
+        if (mimeType.contains("jpeg")) return ".jpg";
+        if (mimeType.contains("png")) return ".png";
+        if (mimeType.contains("gif")) return ".gif";
+        if (mimeType.contains("webp")) return ".webp";
+        if (mimeType.contains("pdf")) return ".pdf";
+        if (mimeType.contains("mp4")) return ".mp4";
+        if (mimeType.contains("mpeg")) return ".mp3";
+        if (mimeType.contains("ogg")) return ".ogg";
+        return "";
     }
 }
 

@@ -16,7 +16,6 @@ import tech.vartaai.whatsappcrm.util.CsvParser;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import tech.vartaai.whatsappcrm.entity.Client;
 
@@ -76,6 +75,7 @@ public class CampaignService {
                     messageService.sendMessage(
                             new SendMessageRequest(
                                     row.getPhone(),
+                                    Message.MessageType.TEMPLATE,
                                     null,
                                     null,
                                     templateId,
