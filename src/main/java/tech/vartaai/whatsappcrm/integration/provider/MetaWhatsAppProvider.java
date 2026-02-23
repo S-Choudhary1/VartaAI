@@ -6,11 +6,13 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.client.MultipartBodyBuilder;
 import tech.vartaai.whatsappcrm.exception.MediaApiException;
 import tech.vartaai.whatsappcrm.config.WhatsAppProperties;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Message;
@@ -32,6 +34,10 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
         this.webClient = WebClient.builder()
                 .baseUrl(props.getApiBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + props.getAccessToken())
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer ->
+                                configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                        .build())
                 .build();
     }
 
@@ -332,7 +338,7 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
     }
 
     @Override
-    public List<MetaTemplateResponse> getApprovedTemplates(Client client) {
+    public MetaTemplateListResponse getTemplates(Client client, Map<String, String> filters) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();
 
@@ -345,39 +351,49 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
 
         try {
             JsonNode response = webClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/" + wabaId + "/message_templates")
-                            .queryParam("fields", "id,name,status,category,language,quality_score")
-                            .queryParam("limit", 255)
-                            .build())
+                    .uri(uriBuilder -> {
+                        var builder = uriBuilder
+                                .path("/" + wabaId + "/message_templates")
+                                .queryParam("fields", "id,name,components,language,status,category,quality_score,rejection_reason,specific_rejection_reason")
+                                .queryParam("limit", 255);
+                        if (filters != null) {
+                            filters.forEach((key, value) -> {
+                                if (value != null && !value.isBlank()) {
+                                    builder.queryParam(key, value);
+                                }
+                            });
+                        }
+                        return builder.build();
+                    })
                     .header("Authorization", "Bearer " + accessToken)
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block();
 
             if (response == null || !response.has("data") || !response.get("data").isArray()) {
-                return Collections.emptyList();
+                return new MetaTemplateListResponse(Collections.emptyList(), null);
             }
 
-            List<MetaTemplateResponse> approved = new ArrayList<>();
+            List<MetaTemplateResponse> templates = new ArrayList<>();
             for (JsonNode item : response.get("data")) {
-                String status = item.path("status").asText("");
-                if (!"APPROVED".equalsIgnoreCase(status)) {
-                    continue;
-                }
-                approved.add(new MetaTemplateResponse(
+                templates.add(new MetaTemplateResponse(
                         item.path("id").asText(null),
                         item.path("name").asText(null),
-                        status,
+                        item.path("status").asText(null),
                         item.path("category").asText(null),
                         item.path("language").asText(null),
-                        item.path("quality_score").asText(null)
+                        item.path("quality_score").asText(null),
+                        item.path("rejection_reason").asText(null),
+                        item.path("specific_rejection_reason").asText(null),
+                        item.path("components"),
+                        item
                 ));
             }
-            return approved;
+            JsonNode paging = response.path("paging").isMissingNode() ? null : response.path("paging");
+            return new MetaTemplateListResponse(templates, paging);
         } catch (Exception e) {
-            log.error("Failed to fetch approved templates from Meta: {}", e.getMessage());
-            throw new RuntimeException("Failed to fetch approved templates from Meta", e);
+            log.error("Failed to fetch templates from Meta: {}", e.getMessage());
+            throw new RuntimeException("Failed to fetch templates from Meta", e);
         }
     }
 

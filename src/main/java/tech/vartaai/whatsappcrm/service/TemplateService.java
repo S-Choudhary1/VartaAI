@@ -5,7 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateButtonRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateComponentRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateRequest;
@@ -78,10 +78,10 @@ public class TemplateService {
         return toResponse(template);
     }
 
-    public List<MetaTemplateResponse> getApprovedTemplatesFromMeta(UUID clientId) {
+    public MetaTemplateListResponse getTemplatesFromMeta(UUID clientId, Map<String, String> filters) {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found"));
-        return whatsAppProvider.getApprovedTemplates(client);
+        return whatsAppProvider.getTemplates(client, filters);
     }
 
     public List<TemplateResponse> getAllTemplates(UUID clientId) {
@@ -321,25 +321,26 @@ public class TemplateService {
     }
 
     private TemplateResponse toResponse(Template template) {
-        try {
-            return new TemplateResponse(
-                    template.getId(),
-                    template.getName(),
-                    template.getProviderTemplateId(),
-                    template.getType().name(),
-                    template.getContentJson(),
-                    template.getLanguageCode(),
-                    template.getInteractionType(),
-                    template.getCategory() != null ? template.getCategory().name() : null,
-                    template.getStatus() != null ? template.getStatus().name() : null,
-                    template.getQualityRating() != null ? template.getQualityRating().name() : null,
-                    template.getCreatedBy(),
-                    template.getCreatedAt(),
-                    template.isActive()
-            );
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to deserialize template content", e);
-        }
+        TemplateResponse response = new TemplateResponse();
+        response.setId(template.getId());
+        response.setName(template.getName());
+        response.setProviderTemplateId(template.getProviderTemplateId());
+        response.setType(template.getType() != null ? template.getType().name() : null);
+        response.setContent(template.getContentJson());
+        response.setLanguageCode(template.getLanguageCode());
+        response.setInteractionType(template.getInteractionType());
+        response.setCategory(template.getCategory() != null ? template.getCategory().name() : null);
+        response.setStatus(template.getStatus() != null ? template.getStatus().name() : null);
+        response.setQualityRating(template.getQualityRating() != null ? template.getQualityRating().name() : null);
+        response.setAllowCategoryChange(template.getAllowCategoryChange());
+        response.setComponentsJson(template.getComponentsJson());
+        response.setExampleValuesJson(template.getExampleValuesJson());
+        response.setRawTemplateJson(template.getRawTemplateJson());
+        response.setLastSyncedAt(template.getLastSyncedAt());
+        response.setCreatedBy(template.getCreatedBy());
+        response.setCreatedAt(template.getCreatedAt());
+        response.setActive(template.isActive());
+        return response;
     }
 }
 

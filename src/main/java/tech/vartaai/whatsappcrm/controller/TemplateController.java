@@ -5,13 +5,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateV2Request;
 import tech.vartaai.whatsappcrm.service.TemplateService;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -38,10 +40,29 @@ public class TemplateController {
         return ResponseEntity.ok(templateService.getAllTemplates(clientId));
     }
 
+    @GetMapping("/meta")
+    public ResponseEntity<MetaTemplateListResponse> getTemplatesFromMeta(
+            @RequestHeader("X-Client-Id") UUID clientId,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String content,
+            @RequestParam(required = false) String language,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false, name = "name_or_content") String nameOrContent,
+            @RequestParam(required = false) String status) {
+        Map<String, String> filters = new HashMap<>();
+        filters.put("category", category);
+        filters.put("content", content);
+        filters.put("language", language);
+        filters.put("name", name);
+        filters.put("name_or_content", nameOrContent);
+        filters.put("status", status);
+        return ResponseEntity.ok(templateService.getTemplatesFromMeta(clientId, filters));
+    }
+
     @GetMapping("/meta/approved")
-    public ResponseEntity<List<MetaTemplateResponse>> getApprovedTemplatesFromMeta(
+    public ResponseEntity<MetaTemplateListResponse> getApprovedTemplatesFromMeta(
             @RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(templateService.getApprovedTemplatesFromMeta(clientId));
+        return ResponseEntity.ok(templateService.getTemplatesFromMeta(clientId, Map.of("status", "APPROVED")));
     }
 
     @GetMapping("/{id}")

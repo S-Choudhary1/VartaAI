@@ -18,6 +18,11 @@ public class TemplateResponse {
     private String category;
     private String status;
     private String qualityRating;
+    private Boolean allowCategoryChange;
+    private String componentsJson;
+    private String exampleValuesJson;
+    private String rawTemplateJson;
+    private OffsetDateTime lastSyncedAt;
     private UUID createdBy;
     private OffsetDateTime createdAt;
     private boolean active;
@@ -28,7 +33,10 @@ public class TemplateResponse {
     public TemplateResponse(UUID id, String name, String providerTemplateId, String type,
                            String content, String languageCode, String interactionType,
                            String category, String status, String qualityRating,
-                           UUID createdBy, OffsetDateTime createdAt, boolean active) {
+                           Boolean allowCategoryChange, String componentsJson,
+                           String exampleValuesJson, String rawTemplateJson,
+                           OffsetDateTime lastSyncedAt, UUID createdBy,
+                           OffsetDateTime createdAt, boolean active) {
         this.id = id;
         this.name = name;
         this.providerTemplateId = providerTemplateId;
@@ -39,6 +47,11 @@ public class TemplateResponse {
         this.category = category;
         this.status = status;
         this.qualityRating = qualityRating;
+        this.allowCategoryChange = allowCategoryChange;
+        this.componentsJson = componentsJson;
+        this.exampleValuesJson = exampleValuesJson;
+        this.rawTemplateJson = rawTemplateJson;
+        this.lastSyncedAt = lastSyncedAt;
         this.createdBy = createdBy;
         this.createdAt = createdAt;
         this.active = active;
