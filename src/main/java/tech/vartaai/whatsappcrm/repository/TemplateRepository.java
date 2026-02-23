@@ -11,6 +11,7 @@ import java.util.UUID;
 @Repository
 public interface TemplateRepository extends JpaRepository<Template, UUID> {
     List<Template> findByClient_Id(UUID clientId);
+    List<Template> findByClient_IdAndStatus(UUID clientId, Template.TemplateStatus status);
     Optional<Template> findByClient_IdAndProviderTemplateId(UUID clientId, String providerTemplateId);
     List<Template> findByClient_IdAndName(UUID clientId, String name);
 }

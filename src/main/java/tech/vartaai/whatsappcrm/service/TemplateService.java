@@ -2,10 +2,12 @@ package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
+import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateButtonRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateComponentRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateRequest;
@@ -78,10 +80,26 @@ public class TemplateService {
         return toResponse(template);
     }
 
+    @Transactional
     public MetaTemplateListResponse getTemplatesFromMeta(UUID clientId, Map<String, String> filters) {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found"));
-        return whatsAppProvider.getTemplates(client, filters);
+        MetaTemplateListResponse metaResponse = whatsAppProvider.getTemplates(client, filters);
+        if (metaResponse.getData() != null) {
+            for (MetaTemplateResponse metaTemplate : metaResponse.getData()) {
+                upsertTemplateFromMeta(client, metaTemplate);
+            }
+        }
+        return metaResponse;
+    }
+
+    public MetaTemplateListResponse getApprovedTemplatesFromInternal(UUID clientId) {
+        List<MetaTemplateResponse> data = templateRepository
+                .findByClient_IdAndStatus(clientId, Template.TemplateStatus.APPROVED)
+                .stream()
+                .map(this::toMetaTemplateResponseFromInternal)
+                .collect(Collectors.toList());
+        return new MetaTemplateListResponse(data, null);
     }
 
     public List<TemplateResponse> getAllTemplates(UUID clientId) {
@@ -341,6 +359,113 @@ public class TemplateService {
         response.setCreatedAt(template.getCreatedAt());
         response.setActive(template.isActive());
         return response;
+    }
+
+    private void upsertTemplateFromMeta(Client client, MetaTemplateResponse metaTemplate) {
+        if (metaTemplate == null || metaTemplate.getId() == null) {
+            return;
+        }
+        Template template = templateRepository
+                .findByClient_IdAndProviderTemplateId(client.getId(), metaTemplate.getId())
+                .orElseGet(() -> {
+                    Template t = new Template();
+                    t.setClient(client);
+                    t.setProviderTemplateId(metaTemplate.getId());
+                    t.setActive(true);
+                    return t;
+                });
+
+        template.setName(firstNonBlank(metaTemplate.getName(), template.getName(), "meta_" + metaTemplate.getId()));
+        template.setLanguageCode(firstNonBlank(metaTemplate.getLanguage(), template.getLanguageCode()));
+        template.setCategory(Template.TemplateCategory.fromValue(metaTemplate.getCategory()));
+        template.setStatus(Template.TemplateStatus.fromValue(metaTemplate.getStatus()));
+        template.setQualityRating(Template.QualityRating.fromValue(metaTemplate.getQualityScore()));
+        template.setType(detectTemplateTypeFromMetaComponents(metaTemplate.getComponents()));
+        template.setContentJson(extractBodyTextFromMetaComponents(metaTemplate.getComponents()));
+        try {
+            if (metaTemplate.getComponents() != null && !metaTemplate.getComponents().isNull()) {
+                template.setComponentsJson(objectMapper.writeValueAsString(metaTemplate.getComponents()));
+            }
+            if (metaTemplate.getRaw() != null && !metaTemplate.getRaw().isNull()) {
+                template.setRawTemplateJson(objectMapper.writeValueAsString(metaTemplate.getRaw()));
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize Meta template payload", e);
+        }
+        template.setLastSyncedAt(java.time.OffsetDateTime.now());
+        templateRepository.save(template);
+    }
+
+    private MetaTemplateResponse toMetaTemplateResponseFromInternal(Template template) {
+        JsonNode componentsNode = null;
+        JsonNode rawNode = null;
+        try {
+            if (template.getComponentsJson() != null && !template.getComponentsJson().isBlank()) {
+                componentsNode = objectMapper.readTree(template.getComponentsJson());
+            }
+            if (template.getRawTemplateJson() != null && !template.getRawTemplateJson().isBlank()) {
+                rawNode = objectMapper.readTree(template.getRawTemplateJson());
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse internal template JSON", e);
+        }
+
+        return new MetaTemplateResponse(
+                template.getId().toString(),
+                template.getName(),
+                template.getStatus() != null ? template.getStatus().name() : null,
+                template.getCategory() != null ? template.getCategory().name() : null,
+                template.getLanguageCode(),
+                template.getQualityRating() != null ? template.getQualityRating().name() : null,
+                null,
+                null,
+                componentsNode,
+                rawNode
+        );
+    }
+
+    private Template.TemplateType detectTemplateTypeFromMetaComponents(JsonNode components) {
+        if (components == null || !components.isArray()) {
+            return Template.TemplateType.CUSTOM;
+        }
+        boolean hasButtons = false;
+        boolean hasHeaderMedia = false;
+        for (JsonNode component : components) {
+            String type = component.path("type").asText("");
+            if ("BUTTONS".equalsIgnoreCase(type)) {
+                hasButtons = true;
+            }
+            if ("HEADER".equalsIgnoreCase(type)) {
+                String format = component.path("format").asText("");
+                if (!format.isBlank() && !"TEXT".equalsIgnoreCase(format)) {
+                    hasHeaderMedia = true;
+                }
+            }
+        }
+        if (hasButtons) return Template.TemplateType.INTERACTIVE;
+        if (hasHeaderMedia) return Template.TemplateType.MEDIA;
+        return Template.TemplateType.TEXT;
+    }
+
+    private String extractBodyTextFromMetaComponents(JsonNode components) {
+        if (components == null || !components.isArray()) {
+            return "";
+        }
+        for (JsonNode component : components) {
+            if ("BODY".equalsIgnoreCase(component.path("type").asText(""))) {
+                return firstNonBlank(component.path("text").asText(null), "");
+            }
+        }
+        return "";
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }
 

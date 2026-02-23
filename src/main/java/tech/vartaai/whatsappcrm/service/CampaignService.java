@@ -50,26 +50,26 @@ public class CampaignService {
 
     @Transactional
     public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId) {
+        Campaign save = new Campaign();
+        save.setName(name);
+        save.setTemplateId(templateId);
+        save.setUploadedBy(uploadedBy);
+        save.setScheduledAt(scheduledAt);
+        save.setStatus(Status.PENDING);
+        int count = 0;
         try {
             List<CsvParser.Row> rows = csvParser.parse(file.getInputStream());
             Map<String, Object> meta = new HashMap<>();
             meta.put("originalFilename", file.getOriginalFilename());
             meta.put("totalRows", rows.size());
             meta.put("targets", rows); // Save the actual data!
-            Campaign c = new Campaign();
             Integer totalContacts = rows.size();
             Client client = new Client();
             client.setId(clientId);
-            c.setClient(client);
-            c.setTotalContacts(totalContacts);
-            c.setName(name);
-            c.setTemplateId(templateId);
-            c.setUploadedBy(uploadedBy);
-            c.setScheduledAt(scheduledAt);
-            c.setStatus(Status.PENDING);
-            c.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
-            Campaign save = campaignRepository.save(c);
-            int count = 0;
+            save.setClient(client);
+            save.setTotalContacts(totalContacts);
+            save.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
+            save = campaignRepository.save(save);
             for(CsvParser.Row row : rows) {
                 try {
                     messageService.sendMessage(
@@ -91,9 +91,17 @@ public class CampaignService {
                 }
             }
             save.setProcessedContacts(count);
+            if(count == totalContacts) {
+                save.setStatus(Status.COMPLETED);
+            } else {
+                save.setStatus(Status.FAILED);
+            }
             campaignRepository.save(save);
             return save;
         } catch (IOException e) {
+            save.setProcessedContacts(count);
+            save.setStatus(Status.FAILED);
+            campaignRepository.save(save);
             throw new RuntimeException("Failed to process CSV", e);
         }
     }

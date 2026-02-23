@@ -62,7 +62,7 @@ public class TemplateController {
     @GetMapping("/meta/approved")
     public ResponseEntity<MetaTemplateListResponse> getApprovedTemplatesFromMeta(
             @RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(templateService.getTemplatesFromMeta(clientId, Map.of("status", "APPROVED")));
+        return ResponseEntity.ok(templateService.getApprovedTemplatesFromInternal(clientId));
     }
 
     @GetMapping("/{id}")
