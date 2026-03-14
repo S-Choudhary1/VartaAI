@@ -19,6 +19,7 @@ import tech.vartaai.whatsappcrm.repository.ClientRepository;
 import tech.vartaai.whatsappcrm.repository.TemplateRepository;
 
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -100,6 +101,45 @@ public class TemplateService {
                 .map(this::toMetaTemplateResponseFromInternal)
                 .collect(Collectors.toList());
         return new MetaTemplateListResponse(data, null);
+    }
+
+    @Transactional
+    public TemplateResponse createTemplateOnMeta(TemplateV2Request request, UUID clientId, UUID createdBy) {
+        validateTemplateV2Request(request);
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found"));
+
+        Map<String, Object> providerPayload = buildMetaTemplateCreatePayload(request);
+        MetaTemplateResponse providerResponse = whatsAppProvider.createTemplate(client, providerPayload);
+
+        Template template = templateRepository
+                .findByClient_IdAndProviderTemplateId(clientId, providerResponse.getId())
+                .orElseGet(() -> {
+                    Template t = new Template();
+                    t.setClient(client);
+                    t.setProviderTemplateId(providerResponse.getId());
+                    t.setCreatedBy(createdBy);
+                    t.setActive(true);
+                    return t;
+                });
+
+        template.setName(request.getName());
+        template.setLanguageCode(request.getLanguageCode());
+        template.setCategory(Template.TemplateCategory.fromValue(providerResponse.getCategory()));
+        template.setStatus(Template.TemplateStatus.fromValue(providerResponse.getStatus()));
+        template.setType(detectTemplateType(request.getComponents()));
+        template.setContentJson(extractBodyTextFromV2Components(request.getComponents()));
+        template.setLastSyncedAt(java.time.OffsetDateTime.now());
+
+        try {
+            template.setComponentsJson(objectMapper.writeValueAsString(request.getComponents()));
+            template.setRawTemplateJson(objectMapper.writeValueAsString(providerPayload));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize template payload", e);
+        }
+
+        Template saved = templateRepository.save(template);
+        return toResponse(saved);
     }
 
     public List<TemplateResponse> getAllTemplates(UUID clientId) {
@@ -466,6 +506,89 @@ public class TemplateService {
             }
         }
         return null;
+    }
+
+    private Map<String, Object> buildMetaTemplateCreatePayload(TemplateV2Request request) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("name", request.getName());
+        payload.put("language", request.getLanguageCode());
+        payload.put("category", request.getCategory());
+        payload.put("components", toMetaComponents(request.getComponents()));
+        return payload;
+    }
+
+    private List<Map<String, Object>> toMetaComponents(List<TemplateComponentRequest> components) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (TemplateComponentRequest component : components) {
+            String type = component.getType() == null ? "" : component.getType().toUpperCase();
+            Map<String, Object> node = new HashMap<>();
+            node.put("type", type);
+
+            switch (type) {
+                case "HEADER":
+                    if (component.getFormat() != null && !component.getFormat().isBlank()) {
+                        node.put("format", component.getFormat().toUpperCase());
+                    }
+                    if (component.getText() != null && !component.getText().isBlank()) {
+                        node.put("text", component.getText());
+                    }
+                    if (component.getSampleValues() != null && !component.getSampleValues().isEmpty()) {
+                        Map<String, Object> example = new HashMap<>();
+                        if ("TEXT".equalsIgnoreCase(component.getFormat())) {
+                            example.put("header_text", component.getSampleValues());
+                        } else if ("IMAGE".equalsIgnoreCase(component.getFormat())
+                                || "VIDEO".equalsIgnoreCase(component.getFormat())
+                                || "DOCUMENT".equalsIgnoreCase(component.getFormat())) {
+                            example.put("header_handle", component.getSampleValues());
+                        }
+                        if (!example.isEmpty()) {
+                            node.put("example", example);
+                        }
+                    }
+                    break;
+                case "BODY":
+                    node.put("text", component.getText());
+                    if (component.getSampleValues() != null && !component.getSampleValues().isEmpty()) {
+                        Map<String, Object> example = new HashMap<>();
+                        example.put("body_text", List.of(component.getSampleValues()));
+                        node.put("example", example);
+                    }
+                    break;
+                case "FOOTER":
+                    if (component.getText() != null && !component.getText().isBlank()) {
+                        node.put("text", component.getText());
+                    }
+                    break;
+                case "BUTTONS":
+                    List<Map<String, Object>> buttons = new ArrayList<>();
+                    if (component.getButtons() != null) {
+                        for (TemplateButtonRequest b : component.getButtons()) {
+                            Map<String, Object> bn = new HashMap<>();
+                            if (b.getType() != null) bn.put("type", b.getType().toUpperCase());
+                            if (b.getText() != null && !b.getText().isBlank()) bn.put("text", b.getText());
+                            if (b.getUrl() != null && !b.getUrl().isBlank()) bn.put("url", b.getUrl());
+                            if (b.getPhoneNumber() != null && !b.getPhoneNumber().isBlank()) bn.put("phone_number", b.getPhoneNumber());
+                            buttons.add(bn);
+                        }
+                    }
+                    node.put("buttons", buttons);
+                    break;
+                default:
+                    break;
+            }
+            result.add(node);
+        }
+        return result;
+    }
+
+    private String extractBodyTextFromV2Components(List<TemplateComponentRequest> components) {
+        if (components == null) return "";
+        for (TemplateComponentRequest component : components) {
+            if ("BODY".equalsIgnoreCase(component.getType())) {
+                return firstNonBlank(component.getText(), "");
+            }
+        }
+        return "";
     }
 }
 

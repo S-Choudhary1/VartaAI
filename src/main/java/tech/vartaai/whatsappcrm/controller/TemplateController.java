@@ -59,6 +59,14 @@ public class TemplateController {
         return ResponseEntity.ok(templateService.getTemplatesFromMeta(clientId, filters));
     }
 
+    @PostMapping("/meta")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<TemplateResponse> createTemplateOnMeta(@Valid @RequestBody TemplateV2Request request,
+                                                                 @RequestHeader("X-Client-Id") UUID clientId) {
+        TemplateResponse response = templateService.createTemplateOnMeta(request, clientId, UUID.randomUUID());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
     @GetMapping("/meta/approved")
     public ResponseEntity<MetaTemplateListResponse> getApprovedTemplatesFromMeta(
             @RequestHeader("X-Client-Id") UUID clientId) {

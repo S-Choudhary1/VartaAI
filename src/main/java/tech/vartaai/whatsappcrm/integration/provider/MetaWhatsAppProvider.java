@@ -338,6 +338,47 @@ public class MetaWhatsAppProvider implements WhatsAppProvider {
     }
 
     @Override
+    public MetaTemplateResponse createTemplate(Client client, Map<String, Object> payload) {
+        String wabaId = client.getWabaId();
+        String accessToken = client.getAccessToken();
+        if (wabaId == null || wabaId.isBlank()) {
+            throw new RuntimeException("Client WABA ID is missing");
+        }
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new RuntimeException("Client access token is missing");
+        }
+        try {
+            JsonNode response = webClient.post()
+                    .uri(uriBuilder -> uriBuilder.path("/" + wabaId + "/message_templates").build())
+                    .header("Authorization", "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            if (response == null) {
+                throw new RuntimeException("Meta template create returned empty response");
+            }
+            return new MetaTemplateResponse(
+                    response.path("id").asText(null),
+                    payload.get("name") != null ? payload.get("name").toString() : null,
+                    response.path("status").asText(null),
+                    response.path("category").asText(null),
+                    payload.get("language") != null ? payload.get("language").toString() : null,
+                    null,
+                    response.path("rejection_reason").asText(null),
+                    response.path("specific_rejection_reason").asText(null),
+                    null,
+                    response
+            );
+        } catch (Exception e) {
+            log.error("Failed to create template on Meta: {}", e.getMessage());
+            throw new RuntimeException("Failed to create template on Meta", e);
+        }
+    }
+
+    @Override
     public MetaTemplateListResponse getTemplates(Client client, Map<String, String> filters) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();

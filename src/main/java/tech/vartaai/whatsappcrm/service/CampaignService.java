@@ -225,6 +225,30 @@ public class CampaignService {
                 }
                 return text != null ? text.toString() : (payload != null ? payload.toString() : "");
             }
+            if ("location".equals(type)) {
+                Object latitude = map.get("latitude");
+                Object longitude = map.get("longitude");
+                Object name = map.get("name");
+                Object address = map.get("address");
+
+                String latLng = (latitude != null || longitude != null)
+                        ? String.valueOf(latitude) + "," + String.valueOf(longitude)
+                        : "";
+
+                String label = name != null ? name.toString() : "";
+                String addr = address != null ? address.toString() : "";
+
+                if (!label.isBlank() && !addr.isBlank()) {
+                    return label + " - " + addr + " (" + latLng + ")";
+                }
+                if (!label.isBlank()) {
+                    return label + " (" + latLng + ")";
+                }
+                if (!addr.isBlank()) {
+                    return addr + " (" + latLng + ")";
+                }
+                return latLng;
+            }
             return responseJson;
         } catch (Exception e) {
             return "";
