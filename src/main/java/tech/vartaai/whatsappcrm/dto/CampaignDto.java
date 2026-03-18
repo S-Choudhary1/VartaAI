@@ -21,8 +21,10 @@ public class CampaignDto {
     private String name;
 
     private UUID templateId;
+    private UUID flowVersionId;
     private UUID uploadedBy;
     private String csvMetadataJson;
+    @Builder.Default
     private Status status = Status.PENDING;
     private OffsetDateTime scheduledAt;
     private OffsetDateTime createdAt;

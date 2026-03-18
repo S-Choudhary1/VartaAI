@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import tech.vartaai.whatsappcrm.dto.CampaignDto;
+import tech.vartaai.whatsappcrm.dto.FlowRunReportItem;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.service.CampaignService;
@@ -31,16 +32,18 @@ public class CampaignController {
     public ResponseEntity<Map<String, Object>> uploadCsv(
             @RequestParam("file") MultipartFile file,
             @RequestParam("name") String name,
-            @RequestParam("templateId") UUID templateId,
+            @RequestParam(value = "templateId", required = false) UUID templateId,
+            @RequestParam(value = "flowVersionId", required = false) UUID flowVersionId,
             @RequestParam(value = "scheduledAt", required = false) String scheduledAt,
             @RequestParam("uploadedBy") UUID uploadedBy,
             @RequestHeader("X-Client-Id") UUID clientId
     ) {
         OffsetDateTime sched = scheduledAt != null && !scheduledAt.isBlank() ? OffsetDateTime.parse(scheduledAt) : null;
-        Campaign c = campaignService.uploadCsv(name, templateId, sched, uploadedBy, file, clientId);
+        Campaign c = campaignService.uploadCsv(name, templateId, flowVersionId, sched, uploadedBy, file, clientId);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "campaignId", c.getId(),
                 "name", c.getName(),
+                "flowVersionId", c.getFlowVersionId(),
                 "status", c.getStatus().name()
         ));
     }
@@ -58,6 +61,12 @@ public class CampaignController {
     @GetMapping("/{id}/messages")
     public ResponseEntity<List<Message>> getCampaignMessages(@PathVariable UUID id, @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(campaignService.getCampaignMessages(id, clientId));
+    }
+
+    @GetMapping("/{id}/flow-runs")
+    public ResponseEntity<List<FlowRunReportItem>> getCampaignFlowRuns(@PathVariable UUID id,
+                                                                       @RequestHeader("X-Client-Id") UUID clientId) {
+        return ResponseEntity.ok(campaignService.getCampaignFlowRuns(id, clientId));
     }
 
     @GetMapping("/{id}/responses/export")

@@ -2,6 +2,9 @@
 
 This document defines the API expected by `Quick Send` compose UI.
 
+For a consolidated list of all recent API updates (including campaigns/flows/templates), see:
+- `UI_API_CHANGELOG.md`
+
 ## Base
 
 - Base URL: `/api/v1`

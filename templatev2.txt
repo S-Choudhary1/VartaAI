@@ -1,0 +1,141 @@
+# WhatsApp CRM Template + Inbox Design
+https://developers.facebook.com/documentation/business-messaging/whatsapp/overview
+
+Go to this whatsapp api doc 
+Mostly we need to handle all type of message 
+all the type of templates
+
+## 1) Template scenarios to support
+
+- Categories:
+  - `MARKETING`
+  - `UTILITY`
+  - `AUTHENTICATION`
+- Components:
+  - `HEADER` (TEXT, IMAGE, VIDEO, DOCUMENT, LOCATION)
+  - `BODY` (required)
+  - `FOOTER` (optional)
+  - `BUTTONS` (optional)
+- Buttons:
+  - `QUICK_REPLY`
+  - `URL`
+  - `PHONE_NUMBER`
+  - `COPY_CODE`
+  - `VOICE_CALL`
+  - `OTP`
+
+## 2) API contract for backend implementation
+
+### Create advanced template
+
+- `POST /api/v1/templates/v2`
+- Request:
+
+```json
+{
+  "name": "order_delivery_update",
+  "category": "UTILITY",
+  "languageCode": "en_US",
+  "components": [
+    { "type": "HEADER", "format": "LOCATION" },
+    { "type": "BODY", "text": "Hello {{1}}, order {{2}} is on the way.", "sampleValues": ["John", "A-1002"] },
+    { "type": "FOOTER", "text": "Reply STOP to unsubscribe" },
+    {
+      "type": "BUTTONS",
+      "buttons": [{ "type": "QUICK_REPLY", "text": "Stop Delivery Updates" }]
+    }
+  ]
+}
+```
+
+### Update advanced template
+
+- `PUT /api/v1/templates/v2/{id}`
+- Request same as create payload.
+
+### Preview advanced template
+
+- `POST /api/v1/templates/v2/preview`
+- Request same as create payload.
+- Response:
+
+```json
+{
+  "previewText": "Hello John, order A-1002 is on the way."
+}
+```
+
+### Existing endpoints (keep for backward compatibility)
+
+- `GET /api/v1/templates`
+- `POST /api/v1/templates`
+- `PUT /api/v1/templates/{id}`
+- `DELETE /api/v1/templates/{id}`
+
+## 3) Data model recommendation
+
+Store both:
+
+1. `normalized_template` (category/components/button definitions)
+2. `provider_payload` (exact Graph API payload used/submitted)
+
+Suggested fields:
+
+- `id`, `client_id`, `name`, `category`, `language_code`
+- `status` (`DRAFT`, `PENDING_REVIEW`, `APPROVED`, `REJECTED`, `PAUSED`)
+- `quality_rating`, `rejection_reason`
+- `components_json`, `provider_payload_json`
+- `provider_template_id`, `created_at`, `updated_at`
+
+## 4) Template lifecycle in CRM
+
+1. Draft in Template Studio.
+2. Validate (component rules/button combinations/variable samples).
+3. Submit to WhatsApp.
+4. Sync status via webhook:
+   - `message_template_status_update`
+   - `message_template_quality_update`
+   - `message_template_components_update`
+5. Show quality + status in template library.
+6. Prevent sending non-approved templates.
+
+## 5) Inbox handling for all message types
+
+Store messages in canonical shape:
+
+- `id`, `direction`, `contact_id`, `from_phone`, `to_phone`
+- `message_type` (`text`, `template`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contacts`, `interactive`, `reaction`, `unknown`)
+- `payload_json` (raw webhook payload)
+- `normalized_json` (render-ready payload)
+- `status` (`sent`, `delivered`, `read`, `failed`)
+- `provider_message_id`, `created_at`
+
+### Rendering rules in inbox UI
+
+- `text`: show body
+- `template`: show template name + rendered variables
+- `image/video/audio/document/sticker`: show media badge and preview/download action
+- `location`: show map pin + name/address
+- `contacts`: show contact-card chip
+- `interactive`: show button/list reply title + id
+- `reaction`: show emoji + referenced message id
+- unknown payload: safe JSON fallback
+
+## 6) Outbound send strategy
+
+- Within 24-hour session:
+  - allow free-form text/media/interactive messages
+- Outside 24-hour session:
+  - allow only approved templates
+- Backend should enforce this rule and return clear error codes.
+
+## 7) Validation rules (must implement)
+
+- Template name format constraints.
+- Header limits by type.
+- Body required.
+- Footer max length.
+- Button counts and valid combinations.
+- Variable usage and sample value requirements.
+- Category-specific constraints (e.g., auth/OTP).
+

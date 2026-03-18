@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import tech.vartaai.whatsappcrm.dto.CampaignDto;
+import tech.vartaai.whatsappcrm.dto.FlowRunReportItem;
 import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
 import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.entity.Campaign;
@@ -33,26 +34,34 @@ public class CampaignService {
     private final ObjectMapper objectMapper;
 
     private final MessageService messageService;
+    private final FlowService flowService;
 
     public CampaignService(CampaignRepository campaignRepository,
                            MessageRepository messageRepository,
                            CsvParser csvParser,
                            ObjectMapper objectMapper,
                            MessageService messageService,
-                           ContactRepository contactRepository) {
+                           ContactRepository contactRepository,
+                           FlowService flowService) {
         this.campaignRepository = campaignRepository;
         this.messageRepository = messageRepository;
         this.csvParser = csvParser;
         this.objectMapper = objectMapper;
         this.messageService = messageService;
         this.contactRepository = contactRepository;
+        this.flowService = flowService;
     }
 
     @Transactional
-    public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId) {
+    public Campaign uploadCsv(String name, UUID templateId, UUID flowVersionId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId) {
+        if (flowVersionId == null && templateId == null) {
+            throw new RuntimeException("Either templateId or flowVersionId is required");
+        }
+
         Campaign save = new Campaign();
         save.setName(name);
         save.setTemplateId(templateId);
+        save.setFlowVersionId(flowVersionId);
         save.setUploadedBy(uploadedBy);
         save.setScheduledAt(scheduledAt);
         save.setStatus(Status.PENDING);
@@ -72,19 +81,23 @@ public class CampaignService {
             save = campaignRepository.save(save);
             for(CsvParser.Row row : rows) {
                 try {
-                    messageService.sendMessage(
-                            new SendMessageRequest(
-                                    row.getPhone(),
-                                    Message.MessageType.TEMPLATE,
-                                    null,
-                                    null,
-                                    templateId,
-                                    row.getVariables(),
-                                    "META",
-                                    save.getId().toString()
-                            ),
-                            clientId
-                    );
+                    if (flowVersionId != null) {
+                        flowService.startFlowForCampaignContact(save, flowVersionId, row.getPhone(), row.getVariables(), clientId);
+                    } else {
+                        messageService.sendMessage(
+                                new SendMessageRequest(
+                                        row.getPhone(),
+                                        Message.MessageType.TEMPLATE,
+                                        null,
+                                        null,
+                                        templateId,
+                                        row.getVariables(),
+                                        "META",
+                                        save.getId().toString()
+                                ),
+                                clientId
+                        );
+                    }
                     count++;
                 } catch (Exception e) {
                     log.error("Exception in sending message {}" , row.getPhone());
@@ -134,6 +147,11 @@ public class CampaignService {
     public List<Message> getCampaignMessages(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId); // Validates campaign exists and belongs to client
         return messageRepository.findByCampaignId(c.getId().toString());
+    }
+
+    public List<FlowRunReportItem> getCampaignFlowRuns(UUID campaignId, UUID clientId) {
+        Campaign c = getCampaign(campaignId, clientId);
+        return flowService.getCampaignFlowReport(c.getId(), clientId);
     }
 
     /**
@@ -189,9 +207,13 @@ public class CampaignService {
         try {
             Map<?, ?> map = objectMapper.readValue(payloadJson, Map.class);
             Object body = map.get("body");
-            Map<String, String> varibales = (Map<String, String>) map.get("variables");
+            Map<String, String> variables = new HashMap<>();
+            Object rawVariables = map.get("variables");
+            if (rawVariables instanceof Map<?, ?> rawMap) {
+                rawMap.forEach((k, v) -> variables.put(String.valueOf(k), v == null ? "" : String.valueOf(v)));
+            }
             if (body instanceof String) {
-                return fillTemplate((String)body, varibales);
+                return fillTemplate((String) body, variables);
             }
             return payloadJson;
         } catch (Exception e) {

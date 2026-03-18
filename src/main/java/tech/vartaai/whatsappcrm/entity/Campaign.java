@@ -31,6 +31,9 @@ public class Campaign {
     @Column(name = "template_id")
     private UUID templateId;
 
+    @Column(name = "flow_version_id")
+    private UUID flowVersionId;
+
     @Column(name = "uploaded_by")
     private UUID uploadedBy;
 
@@ -68,6 +71,7 @@ public class Campaign {
                 .processedContacts(this.processedContacts)
                 .name(this.name)
                 .templateId(this.templateId)
+                .flowVersionId(this.flowVersionId)
                 .status(this.status)
                 .uploadedBy(this.uploadedBy)
                 .createdAt(this.createdAt)
