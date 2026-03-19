@@ -1,5 +1,6 @@
 package tech.vartaai.whatsappcrm.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -11,15 +12,21 @@ import tech.vartaai.whatsappcrm.dto.CampaignDto;
 import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.entity.Campaign;
 import tech.vartaai.whatsappcrm.entity.Client;
+import tech.vartaai.whatsappcrm.entity.FlowExecution;
+import tech.vartaai.whatsappcrm.entity.FlowStepHistory;
 import tech.vartaai.whatsappcrm.entity.Message;
+import tech.vartaai.whatsappcrm.jobs.CampaignRunner;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
 import tech.vartaai.whatsappcrm.repository.ContactRepository;
+import tech.vartaai.whatsappcrm.repository.FlowExecutionRepository;
+import tech.vartaai.whatsappcrm.repository.FlowStepHistoryRepository;
 import tech.vartaai.whatsappcrm.repository.MessageRepository;
 import tech.vartaai.whatsappcrm.util.CsvParser;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -28,19 +35,28 @@ public class CampaignService {
     private final CampaignRepository campaignRepository;
     private final MessageRepository messageRepository;
     private final ContactRepository contactRepository;
+    private final FlowExecutionRepository flowExecutionRepository;
+    private final FlowStepHistoryRepository flowStepHistoryRepository;
     private final CsvParser csvParser;
     private final ObjectMapper objectMapper;
+    private final CampaignRunner campaignRunner;
 
     public CampaignService(CampaignRepository campaignRepository,
                            MessageRepository messageRepository,
                            CsvParser csvParser,
                            ObjectMapper objectMapper,
-                           ContactRepository contactRepository) {
+                           ContactRepository contactRepository,
+                           CampaignRunner campaignRunner,
+                           FlowExecutionRepository flowExecutionRepository,
+                           FlowStepHistoryRepository flowStepHistoryRepository) {
         this.campaignRepository = campaignRepository;
         this.messageRepository = messageRepository;
         this.csvParser = csvParser;
         this.objectMapper = objectMapper;
         this.contactRepository = contactRepository;
+        this.campaignRunner = campaignRunner;
+        this.flowExecutionRepository = flowExecutionRepository;
+        this.flowStepHistoryRepository = flowStepHistoryRepository;
     }
 
     /**
@@ -48,13 +64,14 @@ public class CampaignService {
      * The CampaignRunner scheduled job will pick it up and send messages asynchronously.
      */
     @Transactional
-    public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId) {
+    public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId, UUID flowId) {
         Campaign campaign = new Campaign();
         campaign.setName(name);
         campaign.setTemplateId(templateId);
         campaign.setUploadedBy(uploadedBy);
         campaign.setScheduledAt(scheduledAt);
         campaign.setStatus(Status.PENDING);
+        campaign.setFlowId(flowId);
 
         try {
             List<CsvParser.Row> rows = csvParser.parse(file.getInputStream());
@@ -71,6 +88,7 @@ public class CampaignService {
             campaign.setProcessedContacts(0);
             campaign.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
 
+            campaignRunner.processCampaign(campaign);
             return campaignRepository.save(campaign);
         } catch (IOException e) {
             campaign.setStatus(Status.FAILED);
@@ -121,106 +139,295 @@ public class CampaignService {
 
     /**
      * Build a CSV string for all messages belonging to a campaign, including
-     * contact phone, message body (from payload), status, and user response (if any).
+     * contact phone, message content (resolved), status, user response,
+     * and flow data if a flow is attached.
      */
     public String exportCampaignResponsesCsv(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId);
-        List<Message> messages = messageRepository.findByCampaignId(c.getId());
+        List<Message> campaignMessages = messageRepository.findByCampaignId(c.getId());
+        boolean hasFlow = c.getFlowId() != null;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("contact_phone,message,status,user_response\n");
 
-        for (Message m : messages) {
-            String phone = "";
-            if (m.getContactId() != null) {
-                try {
-                    UUID contactUuid = m.getContactId();
-                    phone = contactRepository.findById(contactUuid)
-                            .map(tech.vartaai.whatsappcrm.entity.Contact::getPhone)
-                            .orElse("");
-                } catch (IllegalArgumentException ignored) {
-                }
+        if (hasFlow) {
+            sb.append("contact_phone,campaign_message,message_status,user_response,flow_status,flow_messages,flow_responses,flow_path\n");
+        } else {
+            sb.append("contact_phone,message,message_type,status,user_response\n");
+        }
+
+        if (hasFlow) {
+            // Group campaign messages by contactId, then enrich with flow data
+            Map<UUID, List<Message>> byContact = campaignMessages.stream()
+                    .filter(m -> m.getContactId() != null)
+                    .collect(Collectors.groupingBy(Message::getContactId));
+
+            List<FlowExecution> executions = flowExecutionRepository.findByCampaignIdOrderByStartedAtAsc(c.getId());
+            Map<UUID, FlowExecution> execByContact = new LinkedHashMap<>();
+            for (FlowExecution exec : executions) {
+                execByContact.putIfAbsent(exec.getContactId(), exec);
             }
 
-            String messageBody = extractBodyFromPayload(m.getPayloadJson());
-            String status = m.getStatus() != null ? m.getStatus().name() : "";
-            String userResponse = extractUserResponse(m.getResponseJson());
+            // Merge all contacts (from messages + from executions)
+            Set<UUID> allContactIds = new LinkedHashSet<>(byContact.keySet());
+            allContactIds.addAll(execByContact.keySet());
 
-            sb.append(escapeCsv(phone)).append(',')
-              .append(escapeCsv(messageBody)).append(',')
-              .append(escapeCsv(status)).append(',')
-              .append(escapeCsv(userResponse)).append('\n');
+            for (UUID contactId : allContactIds) {
+                String phone = resolvePhone(contactId);
+                List<Message> msgs = byContact.getOrDefault(contactId, List.of());
+
+                // Campaign message content + response
+                String campMsg = msgs.isEmpty() ? "" : extractMessageContent(msgs.get(0));
+                String campStatus = msgs.isEmpty() ? "" : (msgs.get(0).getStatus() != null ? msgs.get(0).getStatus().name() : "");
+                String campResponse = msgs.isEmpty() ? "" : extractUserResponse(msgs.get(0).getResponseJson());
+
+                // Flow data
+                FlowExecution exec = execByContact.get(contactId);
+                String flowStatus = "";
+                String flowMessages = "";
+                String flowResponses = "";
+                String flowPath = "";
+
+                if (exec != null) {
+                    flowStatus = exec.getStatus().name();
+                    List<FlowStepHistory> steps = flowStepHistoryRepository
+                            .findByExecutionIdOrderByCreatedAtAsc(exec.getId());
+
+                    List<String> msgParts = new ArrayList<>();
+                    List<String> respParts = new ArrayList<>();
+                    List<String> pathParts = new ArrayList<>();
+
+                    for (FlowStepHistory step : steps) {
+                        pathParts.add(step.getNodeId());
+                        if (step.getAction() == FlowStepHistory.StepAction.MESSAGE_SENT && step.getMessageId() != null) {
+                            Message flowMsg = messageRepository.findById(step.getMessageId()).orElse(null);
+                            if (flowMsg != null) {
+                                msgParts.add(extractMessageContent(flowMsg));
+                            }
+                        }
+                        if (step.getAction() == FlowStepHistory.StepAction.RESPONSE_RECEIVED && step.getResponseData() != null) {
+                            respParts.add(extractUserResponse(step.getResponseData()));
+                        }
+                    }
+                    flowMessages = String.join(" | ", msgParts);
+                    flowResponses = String.join(" | ", respParts);
+                    flowPath = String.join(" → ", pathParts);
+                }
+
+                sb.append(escapeCsv(phone)).append(',')
+                  .append(escapeCsv(campMsg)).append(',')
+                  .append(escapeCsv(campStatus)).append(',')
+                  .append(escapeCsv(campResponse)).append(',')
+                  .append(escapeCsv(flowStatus)).append(',')
+                  .append(escapeCsv(flowMessages)).append(',')
+                  .append(escapeCsv(flowResponses)).append(',')
+                  .append(escapeCsv(flowPath)).append('\n');
+            }
+        } else {
+            // Simple export without flow data
+            for (Message m : campaignMessages) {
+                String phone = resolvePhone(m.getContactId());
+                String messageBody = extractMessageContent(m);
+                String msgType = m.getMessageType() != null ? m.getMessageType().name() : "";
+                String status = m.getStatus() != null ? m.getStatus().name() : "";
+                String userResponse = extractUserResponse(m.getResponseJson());
+
+                sb.append(escapeCsv(phone)).append(',')
+                  .append(escapeCsv(messageBody)).append(',')
+                  .append(escapeCsv(msgType)).append(',')
+                  .append(escapeCsv(status)).append(',')
+                  .append(escapeCsv(userResponse)).append('\n');
+            }
         }
 
         return sb.toString();
     }
 
-    private String extractBodyFromPayload(String payloadJson) {
+    // ═══════════════════════════════════════════════════════════════
+    //  MESSAGE CONTENT RESOLVER — handles all normalized payload types
+    // ═══════════════════════════════════════════════════════════════
+
+    private String extractMessageContent(Message m) {
+        if (m == null) return "";
+        return extractContentFromPayload(m.getPayloadJson(), m.getMessageType());
+    }
+
+    private String extractContentFromPayload(String payloadJson, Message.MessageType messageType) {
         if (payloadJson == null || payloadJson.isEmpty()) return "";
         try {
-            Map<?, ?> map = objectMapper.readValue(payloadJson, Map.class);
-            Object body = map.get("body");
-            Map<String, String> varibales = (Map<String, String>) map.get("variables");
-            if (body instanceof String) {
-                return fillTemplate((String)body, varibales);
+            JsonNode root = objectMapper.readTree(payloadJson);
+            String type = root.has("type") ? root.path("type").asText("") : "";
+
+            // TEXT: { "type":"text", "text": {"body":"..."} }
+            if ("text".equals(type) || messageType == Message.MessageType.TEXT) {
+                JsonNode textNode = root.path("text");
+                if (textNode.isObject()) {
+                    return textNode.path("body").asText("");
+                }
+                // Fallback for flat body
+                return root.path("body").asText("");
             }
-            return payloadJson;
+
+            // TEMPLATE: { "type":"template", "body":"...", "variables":{...}, "templateName":"..." }
+            if ("template".equals(type) || messageType == Message.MessageType.TEMPLATE) {
+                String templateName = root.path("templateName").asText("");
+                String body = root.path("body").asText("");
+                JsonNode vars = root.path("variables");
+                if (!body.isEmpty() && vars.isObject()) {
+                    var it = vars.fields();
+                    while (it.hasNext()) {
+                        var entry = it.next();
+                        body = body.replace("{{" + entry.getKey() + "}}", entry.getValue().asText(""));
+                    }
+                }
+                if (!body.isEmpty()) {
+                    return templateName.isEmpty() ? body : "[" + templateName + "] " + body;
+                }
+                return templateName.isEmpty() ? "Template message" : "[" + templateName + "]";
+            }
+
+            // INTERACTIVE: { "type":"interactive", "interactive":{"type":"button","body":{"text":"..."}} }
+            if ("interactive".equals(type) || messageType == Message.MessageType.INTERACTIVE) {
+                JsonNode interactive = root.path("interactive");
+                String bodyText = interactive.path("body").path("text").asText("");
+                if (!bodyText.isEmpty()) return bodyText;
+                return "Interactive message";
+            }
+
+            // MEDIA types (image, video, audio, document, sticker)
+            for (String mediaType : List.of("image", "video", "audio", "document", "sticker")) {
+                if (mediaType.equals(type) || root.has(mediaType)) {
+                    JsonNode media = root.path(mediaType);
+                    String caption = media.path("caption").asText("");
+                    String filename = media.path("filename").asText("");
+                    if (!caption.isEmpty()) return "[" + mediaType.toUpperCase() + "] " + caption;
+                    if (!filename.isEmpty()) return "[" + mediaType.toUpperCase() + "] " + filename;
+                    return "[" + mediaType.toUpperCase() + "]";
+                }
+            }
+
+            // LOCATION
+            if ("location".equals(type) || root.has("location")) {
+                JsonNode loc = root.path("location");
+                String name = loc.path("name").asText("");
+                String address = loc.path("address").asText("");
+                if (!name.isEmpty()) return "[LOCATION] " + name + (address.isEmpty() ? "" : ", " + address);
+                return "[LOCATION] " + loc.path("latitude").asText("") + "," + loc.path("longitude").asText("");
+            }
+
+            // CONTACTS
+            if ("contacts".equals(type) || root.has("contacts")) {
+                return "[CONTACTS]";
+            }
+
+            // REACTION
+            if ("reaction".equals(type)) {
+                return root.path("reaction").path("emoji").asText("Reaction");
+            }
+
+            // Fallback: try flat body field (old format)
+            String body = root.path("body").asText("");
+            if (!body.isEmpty()) {
+                JsonNode vars = root.path("variables");
+                if (vars.isObject()) {
+                    var it = vars.fields();
+                    while (it.hasNext()) {
+                        var entry = it.next();
+                        body = body.replace("{{" + entry.getKey() + "}}", entry.getValue().asText(""));
+                    }
+                }
+                return body;
+            }
+
+            return "";
         } catch (Exception e) {
+            log.warn("Failed to extract message content: {}", e.getMessage());
             return "";
         }
     }
-    private String fillTemplate(String template, Map<String, String> values) {
-        String result = template;
 
-        for (Map.Entry<String, String> entry : values.entrySet()) {
-            result = result.replace("{{" + entry.getKey() + "}}", entry.getValue());
-        }
-
-        return result;
-    }
+    // ═══════════════════════════════════════════════════════════════
+    //  USER RESPONSE RESOLVER — handles all normalized response types
+    // ═══════════════════════════════════════════════════════════════
 
     private String extractUserResponse(String responseJson) {
         if (responseJson == null || responseJson.isEmpty()) return "";
         try {
-            Map<?, ?> map = objectMapper.readValue(responseJson, Map.class);
-            Object type = map.get("type");
-            if ("text".equals(type)) {
-                Object text = map.get("text");
-                return text != null ? text.toString() : "";
-            }
-            if ("button".equals(type)) {
-                Object text = map.get("text");
-                Object payload = map.get("payload");
-                if (text != null && payload != null && !text.equals(payload)) {
-                    return text + " (" + payload + ")";
-                }
-                return text != null ? text.toString() : (payload != null ? payload.toString() : "");
-            }
-            if ("location".equals(type)) {
-                Object latitude = map.get("latitude");
-                Object longitude = map.get("longitude");
-                Object name = map.get("name");
-                Object address = map.get("address");
+            JsonNode root = objectMapper.readTree(responseJson);
+            String type = root.path("type").asText("");
 
-                String latLng = (latitude != null || longitude != null)
-                        ? String.valueOf(latitude) + "," + String.valueOf(longitude)
-                        : "";
+            switch (type) {
+                case "text":
+                    return root.path("text").asText("");
 
-                String label = name != null ? name.toString() : "";
-                String addr = address != null ? address.toString() : "";
+                case "button": {
+                    String text = root.path("text").asText("");
+                    String payload = root.path("payload").asText("");
+                    if (!text.isEmpty() && !payload.isEmpty() && !text.equals(payload)) {
+                        return text + " (" + payload + ")";
+                    }
+                    return !text.isEmpty() ? text : payload;
+                }
 
-                if (!label.isBlank() && !addr.isBlank()) {
-                    return label + " - " + addr + " (" + latLng + ")";
+                case "interactive": {
+                    String id = root.path("id").asText("");
+                    String title = root.path("title").asText("");
+                    String desc = root.path("description").asText("");
+                    StringBuilder sb2 = new StringBuilder();
+                    if (!title.isEmpty()) sb2.append(title);
+                    if (!id.isEmpty() && !id.equals(title)) sb2.append(" (").append(id).append(")");
+                    if (!desc.isEmpty()) sb2.append(" - ").append(desc);
+                    return sb2.length() > 0 ? sb2.toString() : "Interactive reply";
                 }
-                if (!label.isBlank()) {
-                    return label + " (" + latLng + ")";
+
+                case "reaction":
+                    return root.path("emoji").asText("Reaction");
+
+                case "location": {
+                    String name = root.path("name").asText("");
+                    String address = root.path("address").asText("");
+                    String lat = root.has("latitude") ? String.valueOf(root.path("latitude").asDouble()) : "";
+                    String lon = root.has("longitude") ? String.valueOf(root.path("longitude").asDouble()) : "";
+                    String coords = (!lat.isEmpty() && !lon.isEmpty()) ? lat + "," + lon : "";
+                    if (!name.isEmpty()) return name + (!address.isEmpty() ? " - " + address : "") + (coords.isEmpty() ? "" : " (" + coords + ")");
+                    if (!address.isEmpty()) return address + (coords.isEmpty() ? "" : " (" + coords + ")");
+                    return coords;
                 }
-                if (!addr.isBlank()) {
-                    return addr + " (" + latLng + ")";
+
+                case "image": case "video": case "audio": case "document": case "sticker": {
+                    String caption = root.path("caption").asText("");
+                    String filename = root.path("filename").asText("");
+                    if (!caption.isEmpty()) return "[" + type.toUpperCase() + "] " + caption;
+                    if (!filename.isEmpty()) return "[" + type.toUpperCase() + "] " + filename;
+                    return "[" + type.toUpperCase() + "]";
                 }
-                return latLng;
+
+                case "contacts":
+                    return "[CONTACTS]";
+
+                case "order":
+                    return "[ORDER] " + root.path("text").asText("");
+
+                default:
+                    // For unknown types, return a readable summary
+                    if (root.has("text")) return root.path("text").asText("");
+                    if (root.has("raw")) return "[" + type.toUpperCase() + "]";
+                    return "";
             }
-            return responseJson;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    private String resolvePhone(UUID contactId) {
+        if (contactId == null) return "";
+        try {
+            return contactRepository.findById(contactId)
+                    .map(tech.vartaai.whatsappcrm.entity.Contact::getPhone)
+                    .orElse("");
         } catch (Exception e) {
             return "";
         }

@@ -33,19 +33,22 @@ public class WebhookService {
     private final ContactRepository contactRepository;
     private final MessageRepository messageRepository;
     private final TemplateRepository templateRepository;
+    private final FlowEngineService flowEngineService;
 
-    public WebhookService(WebhookEventRepository webhookEventRepository, 
+    public WebhookService(WebhookEventRepository webhookEventRepository,
                           ObjectMapper objectMapper,
                           ClientRepository clientRepository,
                           ContactRepository contactRepository,
                           MessageRepository messageRepository,
-                          TemplateRepository templateRepository) {
+                          TemplateRepository templateRepository,
+                          FlowEngineService flowEngineService) {
         this.webhookEventRepository = webhookEventRepository;
         this.objectMapper = objectMapper;
         this.clientRepository = clientRepository;
         this.contactRepository = contactRepository;
         this.messageRepository = messageRepository;
         this.templateRepository = templateRepository;
+        this.flowEngineService = flowEngineService;
     }
 
     @Transactional
@@ -163,6 +166,14 @@ public class WebhookService {
                     original.setResponseJson(responseJson);
                     messageRepository.save(original);
                     log.info("WA_RESPONSE_ATTACHED originalMsgId={} replyMsgId={}", contextId, msgId);
+
+                    // Also process flow engine for replies
+                    Contact replyContact = findOrCreateContact(from, contactName, client);
+                    try {
+                        flowEngineService.processIncomingMessage(replyContact, client, responseJson, msgId);
+                    } catch (Exception e) {
+                        log.error("FLOW_ENGINE_REPLY_ERROR msgId={} err={}", msgId, e.getMessage());
+                    }
                     continue;
                 }
             }
@@ -191,8 +202,13 @@ public class WebhookService {
 
             log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
 
-            // optional auto reply
-//            autoReplyLogic(m, contact, client);
+            // Process flow engine for incoming messages
+            try {
+                String responseJsonForFlow = buildUserResponseJson(type, msg);
+                flowEngineService.processIncomingMessage(contact, client, responseJsonForFlow, msgId);
+            } catch (Exception e) {
+                log.error("FLOW_ENGINE_WEBHOOK_ERROR msgId={} err={}", msgId, e.getMessage());
+            }
         }
     }
 

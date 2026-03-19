@@ -28,4 +28,5 @@ public class CampaignDto {
     private OffsetDateTime createdAt;
     private Integer totalContacts;
     private Integer processedContacts;
-    }
+    private UUID flowId;
+}

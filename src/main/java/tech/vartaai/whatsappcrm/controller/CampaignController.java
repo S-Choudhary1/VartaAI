@@ -38,10 +38,11 @@ public class CampaignController {
             @RequestParam("templateId") UUID templateId,
             @RequestParam(value = "scheduledAt", required = false) String scheduledAt,
             @RequestParam("uploadedBy") UUID uploadedBy,
+            @RequestParam(value = "flowId", required = false) UUID flowId,
             @RequestHeader("X-Client-Id") UUID clientId
     ) {
         OffsetDateTime sched = scheduledAt != null && !scheduledAt.isBlank() ? OffsetDateTime.parse(scheduledAt) : null;
-        Campaign c = campaignService.uploadCsv(name, templateId, sched, uploadedBy, file, clientId);
+        Campaign c = campaignService.uploadCsv(name, templateId, sched, uploadedBy, file, clientId, flowId);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "campaignId", c.getId(),
                 "name", c.getName(),

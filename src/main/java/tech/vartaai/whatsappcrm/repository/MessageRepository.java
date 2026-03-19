@@ -20,6 +20,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     Optional<Message> findByProviderMessageId(String providerMsgId);
 
     boolean existsByProviderMessageId(String providerMsgId);
+
+    List<Message> findByFlowExecutionId(UUID flowExecutionId);
 }
 
 

@@ -54,6 +54,9 @@ public class Campaign {
     @Column(name = "total_contacts")
     private Integer totalContacts;
 
+    @Column(name = "flow_id")
+    private UUID flowId;
+
     @PrePersist
     public void prePersist() {
         if (id == null) id = UUID.randomUUID();
@@ -73,6 +76,7 @@ public class Campaign {
                 .createdAt(this.createdAt)
                 .scheduledAt(this.scheduledAt)
                 .csvMetadataJson(this.csvMetadataJson)
+                .flowId(this.flowId)
                 .build();
     }
 }

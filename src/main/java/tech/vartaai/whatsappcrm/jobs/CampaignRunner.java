@@ -9,8 +9,13 @@ import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
 import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.dto.message.TemplatePayload;
 import tech.vartaai.whatsappcrm.entity.Campaign;
+import tech.vartaai.whatsappcrm.entity.Contact;
+import tech.vartaai.whatsappcrm.entity.Flow;
 import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
+import tech.vartaai.whatsappcrm.repository.ContactRepository;
+import tech.vartaai.whatsappcrm.repository.FlowRepository;
+import tech.vartaai.whatsappcrm.service.FlowEngineService;
 import tech.vartaai.whatsappcrm.service.MessageService;
 
 import java.time.OffsetDateTime;
@@ -25,13 +30,22 @@ public class CampaignRunner {
     private final CampaignRepository campaignRepository;
     private final MessageService messageService;
     private final ObjectMapper objectMapper;
+    private final FlowRepository flowRepository;
+    private final FlowEngineService flowEngineService;
+    private final ContactRepository contactRepository;
 
     public CampaignRunner(CampaignRepository campaignRepository,
                           MessageService messageService,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          FlowRepository flowRepository,
+                          FlowEngineService flowEngineService,
+                          ContactRepository contactRepository) {
         this.campaignRepository = campaignRepository;
         this.messageService = messageService;
         this.objectMapper = objectMapper;
+        this.flowRepository = flowRepository;
+        this.flowEngineService = flowEngineService;
+        this.contactRepository = contactRepository;
     }
 
 //    @Scheduled(fixedDelay = 10000)
@@ -49,7 +63,7 @@ public class CampaignRunner {
         }
     }
 
-    private void processCampaign(Campaign campaign) {
+    public void processCampaign(Campaign campaign) {
         log.info("CAMPAIGN_START campaignId={} name={}", campaign.getId(), campaign.getName());
 
         campaign.setStatus(Status.RUNNING);
@@ -107,6 +121,23 @@ public class CampaignRunner {
 
                 messageService.sendMessage(req, clientId);
                 successCount++;
+
+                // Enroll contact into flow if campaign has an attached flow
+                if (campaign.getFlowId() != null) {
+                    try {
+                        Flow flow = flowRepository.findById(campaign.getFlowId()).orElse(null);
+                        if (flow != null && flow.getStatus() == Flow.FlowStatus.ACTIVE) {
+                            Contact contact = contactRepository
+                                    .findByPhoneAndClient_Id(phone, clientId).orElse(null);
+                            if (contact != null) {
+                                flowEngineService.startFlowForContact(flow, contact, campaign.getId());
+                            }
+                        }
+                    } catch (Exception flowErr) {
+                        log.error("CAMPAIGN_FLOW_ENROLL_FAILED campaignId={} phone={} err={}",
+                                campaign.getId(), phone, flowErr.getMessage());
+                    }
+                }
             } catch (Exception e) {
                 log.error("CAMPAIGN_SEND_FAILED campaignId={} phone={} err={}",
                         campaign.getId(), phone, e.getMessage());

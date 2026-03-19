@@ -97,6 +97,9 @@ public class Message {
     @Column(name = "response", columnDefinition = "jsonb")
     private String responseJson;
 
+    @Column(name = "flow_execution_id")
+    private UUID flowExecutionId;
+
     @Column(name = "error")
     private String error;
 
