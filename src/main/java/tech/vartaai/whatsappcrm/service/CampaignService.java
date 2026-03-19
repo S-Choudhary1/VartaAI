@@ -2,25 +2,24 @@ package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import tech.vartaai.whatsappcrm.dto.CampaignDto;
-import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
 import tech.vartaai.whatsappcrm.dto.Status;
 import tech.vartaai.whatsappcrm.entity.Campaign;
+import tech.vartaai.whatsappcrm.entity.Client;
+import tech.vartaai.whatsappcrm.entity.Message;
 import tech.vartaai.whatsappcrm.repository.CampaignRepository;
 import tech.vartaai.whatsappcrm.repository.ContactRepository;
+import tech.vartaai.whatsappcrm.repository.MessageRepository;
 import tech.vartaai.whatsappcrm.util.CsvParser;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.*;
-
-import tech.vartaai.whatsappcrm.entity.Client;
-
-import tech.vartaai.whatsappcrm.entity.Message;
-import tech.vartaai.whatsappcrm.repository.MessageRepository;
 
 @Service
 @Slf4j
@@ -32,76 +31,50 @@ public class CampaignService {
     private final CsvParser csvParser;
     private final ObjectMapper objectMapper;
 
-    private final MessageService messageService;
-
     public CampaignService(CampaignRepository campaignRepository,
                            MessageRepository messageRepository,
                            CsvParser csvParser,
                            ObjectMapper objectMapper,
-                           MessageService messageService,
                            ContactRepository contactRepository) {
         this.campaignRepository = campaignRepository;
         this.messageRepository = messageRepository;
         this.csvParser = csvParser;
         this.objectMapper = objectMapper;
-        this.messageService = messageService;
         this.contactRepository = contactRepository;
     }
 
+    /**
+     * Parse CSV, create campaign with PENDING status, and return immediately.
+     * The CampaignRunner scheduled job will pick it up and send messages asynchronously.
+     */
     @Transactional
     public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId) {
-        Campaign save = new Campaign();
-        save.setName(name);
-        save.setTemplateId(templateId);
-        save.setUploadedBy(uploadedBy);
-        save.setScheduledAt(scheduledAt);
-        save.setStatus(Status.PENDING);
-        int count = 0;
+        Campaign campaign = new Campaign();
+        campaign.setName(name);
+        campaign.setTemplateId(templateId);
+        campaign.setUploadedBy(uploadedBy);
+        campaign.setScheduledAt(scheduledAt);
+        campaign.setStatus(Status.PENDING);
+
         try {
             List<CsvParser.Row> rows = csvParser.parse(file.getInputStream());
+
             Map<String, Object> meta = new HashMap<>();
             meta.put("originalFilename", file.getOriginalFilename());
             meta.put("totalRows", rows.size());
-            meta.put("targets", rows); // Save the actual data!
-            Integer totalContacts = rows.size();
+            meta.put("targets", rows);
+
             Client client = new Client();
             client.setId(clientId);
-            save.setClient(client);
-            save.setTotalContacts(totalContacts);
-            save.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
-            save = campaignRepository.save(save);
-            for(CsvParser.Row row : rows) {
-                try {
-                    messageService.sendMessage(
-                            new SendMessageRequest(
-                                    row.getPhone(),
-                                    Message.MessageType.TEMPLATE,
-                                    null,
-                                    null,
-                                    templateId,
-                                    row.getVariables(),
-                                    "META",
-                                    save.getId().toString()
-                            ),
-                            clientId
-                    );
-                    count++;
-                } catch (Exception e) {
-                    log.error("Exception in sending message {}" , row.getPhone());
-                }
-            }
-            save.setProcessedContacts(count);
-            if(count == totalContacts) {
-                save.setStatus(Status.COMPLETED);
-            } else {
-                save.setStatus(Status.FAILED);
-            }
-            campaignRepository.save(save);
-            return save;
+            campaign.setClient(client);
+            campaign.setTotalContacts(rows.size());
+            campaign.setProcessedContacts(0);
+            campaign.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
+
+            return campaignRepository.save(campaign);
         } catch (IOException e) {
-            save.setProcessedContacts(count);
-            save.setStatus(Status.FAILED);
-            campaignRepository.save(save);
+            campaign.setStatus(Status.FAILED);
+            campaignRepository.save(campaign);
             throw new RuntimeException("Failed to process CSV", e);
         }
     }
@@ -131,9 +104,19 @@ public class CampaignService {
         }
     }
 
+    public Page<CampaignDto> getAllCampaigns(UUID clientId, Pageable pageable) {
+        try {
+            return campaignRepository.findByClient_IdOrderByCreatedAtDesc(clientId, pageable)
+                    .map(Campaign::toDto);
+        } catch (Exception e) {
+            log.error("Exception in getAllCampaigns (paginated) {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
     public List<Message> getCampaignMessages(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId); // Validates campaign exists and belongs to client
-        return messageRepository.findByCampaignId(c.getId().toString());
+        return messageRepository.findByCampaignId(c.getId());
     }
 
     /**
@@ -142,7 +125,7 @@ public class CampaignService {
      */
     public String exportCampaignResponsesCsv(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId);
-        List<Message> messages = messageRepository.findByCampaignId(c.getId().toString());
+        List<Message> messages = messageRepository.findByCampaignId(c.getId());
 
         StringBuilder sb = new StringBuilder();
         sb.append("contact_phone,message,status,user_response\n");
@@ -151,19 +134,7 @@ public class CampaignService {
             String phone = "";
             if (m.getContactId() != null) {
                 try {
-                    contactRepository.findById(UUID.fromString(m.getContactId()))
-                            .ifPresent(contact -> {
-                                // closure needs effectively final var; use array wrapper
-                            });
-                } catch (IllegalArgumentException ignored) {
-                    // contactId not a valid UUID; skip
-                }
-            }
-
-            // Re-fetch contact properly outside lambda to keep code simple
-            if (m.getContactId() != null) {
-                try {
-                    UUID contactUuid = UUID.fromString(m.getContactId());
+                    UUID contactUuid = m.getContactId();
                     phone = contactRepository.findById(contactUuid)
                             .map(tech.vartaai.whatsappcrm.entity.Contact::getPhone)
                             .orElse("");

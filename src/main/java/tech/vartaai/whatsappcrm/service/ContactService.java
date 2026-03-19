@@ -2,6 +2,8 @@ package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.vartaai.whatsappcrm.dto.ContactRequest;
@@ -76,6 +78,11 @@ public class ContactService {
         return contactRepository.findByClient_Id(clientId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    public Page<ContactResponse> getAllContacts(UUID clientId, Pageable pageable) {
+        return contactRepository.findByClient_Id(clientId, pageable)
+                .map(this::toResponse);
     }
 
     public ContactResponse getContactByPhone(String phone, UUID clientId) {

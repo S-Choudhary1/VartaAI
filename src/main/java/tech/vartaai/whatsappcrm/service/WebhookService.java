@@ -17,6 +17,8 @@ import tech.vartaai.whatsappcrm.repository.MessageRepository;
 import tech.vartaai.whatsappcrm.repository.TemplateRepository;
 import tech.vartaai.whatsappcrm.repository.WebhookEventRepository;
 
+import static tech.vartaai.whatsappcrm.util.StringUtils.firstNonBlank;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,10 +134,26 @@ public class WebhookService {
 
             log.info("WA_INCOMING msgId={} from={} type={} contextId={}", msgId, from, type, contextId);
 
+            // For reactions: attach to original message AND create standalone record
+            if ("reaction".equals(type)) {
+                String reactionTargetId = msg.path("reaction").path("message_id").asText(null);
+                if (reactionTargetId != null && !reactionTargetId.isBlank()) {
+                    Message original = messageRepository.findByProviderMessageId(reactionTargetId).orElse(null);
+                    if (original != null) {
+                        String responseJson = buildUserResponseJson(type, msg);
+                        original.setResponseJson(responseJson);
+                        messageRepository.save(original);
+                        log.info("WA_REACTION_ATTACHED targetMsgId={} emoji={}", reactionTargetId,
+                                msg.path("reaction").path("emoji").asText(""));
+                    }
+                }
+                // Also create standalone INCOMING reaction record (falls through to normal create below)
+            }
+
             // If this is a reply to an outgoing message (has context.id),
             // attach the user's response to the existing message row instead
             // of creating a separate INCOMING row.
-            if (contextId != null && !contextId.isBlank()) {
+            if (contextId != null && !contextId.isBlank() && !"reaction".equals(type)) {
                 Message original = messageRepository
                         .findByProviderMessageId(contextId)
                         .orElse(null);
@@ -159,7 +177,7 @@ public class WebhookService {
 
             Message m = new Message();
             m.setClient(client);
-            m.setContactId(contact.getId().toString());
+            m.setContactId(contact.getId());
             m.setDirection(Message.Direction.INCOMING);
             m.setProvider("META");
             m.setProviderMessageId(msgId);
@@ -348,6 +366,13 @@ public class WebhookService {
                     normalized.put("productItems", order.path("product_items"));
                     return objectMapper.writeValueAsString(normalized);
                 }
+                case "request_welcome":
+                case "ephemeral": {
+                    Map<String, Object> normalized = new HashMap<>();
+                    normalized.put("type", type);
+                    normalized.put("raw", msg);
+                    return objectMapper.writeValueAsString(normalized);
+                }
                 case "system": {
                     JsonNode system = msg.path("system");
                     Map<String, Object> normalized = new HashMap<>();
@@ -464,15 +489,6 @@ public class WebhookService {
         }
         List<Template> templates = templateRepository.findByClient_IdAndName(client.getId(), templateName);
         return templates.isEmpty() ? null : templates.get(0);
-    }
-
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private String extractStatusError(JsonNode status) {

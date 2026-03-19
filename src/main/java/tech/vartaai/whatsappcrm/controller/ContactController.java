@@ -1,6 +1,10 @@
 package tech.vartaai.whatsappcrm.controller;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -8,7 +12,6 @@ import tech.vartaai.whatsappcrm.dto.ContactRequest;
 import tech.vartaai.whatsappcrm.dto.ContactResponse;
 import tech.vartaai.whatsappcrm.service.ContactService;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -38,8 +41,10 @@ public class ContactController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ContactResponse>> getAllContacts(@RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(contactService.getAllContacts(clientId));
+    public ResponseEntity<Page<ContactResponse>> getAllContacts(
+            @RequestHeader("X-Client-Id") UUID clientId,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(contactService.getAllContacts(clientId, pageable));
     }
 
     @GetMapping("/{id}")

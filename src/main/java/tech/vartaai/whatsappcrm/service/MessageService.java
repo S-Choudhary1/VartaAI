@@ -3,11 +3,11 @@ package tech.vartaai.whatsappcrm.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import tech.vartaai.whatsappcrm.dto.SendMessageRequest;
+import tech.vartaai.whatsappcrm.dto.message.*;
 import tech.vartaai.whatsappcrm.exception.ApiException;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Contact;
@@ -22,6 +22,9 @@ import tech.vartaai.whatsappcrm.repository.ContactRepository;
 import tech.vartaai.whatsappcrm.repository.MessageRepository;
 import tech.vartaai.whatsappcrm.repository.TemplateRepository;
 
+import static tech.vartaai.whatsappcrm.util.StringUtils.firstNonBlank;
+import static tech.vartaai.whatsappcrm.util.StringUtils.isBlank;
+
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -32,10 +35,7 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class MessageService {
-    private static final EnumSet<Message.MessageType> QUICK_SEND_TYPES = EnumSet.of(
-            Message.MessageType.TEXT,
-            Message.MessageType.TEMPLATE
-    );
+
     private static final EnumSet<Message.MessageType> MEDIA_MESSAGE_TYPES = EnumSet.of(
             Message.MessageType.IMAGE,
             Message.MessageType.VIDEO,
@@ -43,11 +43,31 @@ public class MessageService {
             Message.MessageType.DOCUMENT,
             Message.MessageType.STICKER
     );
-    private static final EnumSet<Message.MessageType> SEND_MEDIA_TYPES = EnumSet.of(
+
+    /** Types allowed via the file-upload endpoint (POST /send-media) */
+    private static final EnumSet<Message.MessageType> UPLOAD_MEDIA_TYPES = EnumSet.of(
             Message.MessageType.IMAGE,
             Message.MessageType.VIDEO,
-            Message.MessageType.DOCUMENT
+            Message.MessageType.AUDIO,
+            Message.MessageType.DOCUMENT,
+            Message.MessageType.STICKER
     );
+
+    /** All types that can be sent via POST /send (JSON body) */
+    private static final EnumSet<Message.MessageType> SENDABLE_TYPES = EnumSet.of(
+            Message.MessageType.TEXT,
+            Message.MessageType.TEMPLATE,
+            Message.MessageType.IMAGE,
+            Message.MessageType.VIDEO,
+            Message.MessageType.AUDIO,
+            Message.MessageType.DOCUMENT,
+            Message.MessageType.STICKER,
+            Message.MessageType.LOCATION,
+            Message.MessageType.CONTACTS,
+            Message.MessageType.INTERACTIVE,
+            Message.MessageType.REACTION
+    );
+
     private static final Set<String> ALLOWED_DOCUMENT_MIME_TYPES = new HashSet<>(Set.of(
             "application/pdf",
             "application/msword",
@@ -67,13 +87,7 @@ public class MessageService {
     private final ClientRepository clientRepository;
     private final ObjectMapper objectMapper;
 
-    @Value("${whatsapp.providers.meta.phoneNumberId}")
-    private String defaultPhoneNumberId;
-    
-    @Value("${whatsapp.providers.meta.accessToken}")
-    private String defaultAccessToken;
-
-    public MessageService(WhatsAppProvider provider, 
+    public MessageService(WhatsAppProvider provider,
                           TemplateRepository templateRepository,
                           MessageRepository messageRepository,
                           ContactRepository contactRepository,
@@ -87,59 +101,59 @@ public class MessageService {
         this.objectMapper = objectMapper;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  UNIFIED SEND (JSON body — all message types)
+    // ═══════════════════════════════════════════════════════════════
+
     public SendResponse sendMessage(SendMessageRequest request, UUID clientId) {
-        log.info("Processing send message request to: {}, clientId: {}", request.getTo(), clientId);
-        if (request.getMessageType() == null || !QUICK_SEND_TYPES.contains(request.getMessageType())) {
+        log.info("Processing send request type={} to={} clientId={}", request.getMessageType(), request.getTo(), clientId);
+
+        if (request.getMessageType() == null || !SENDABLE_TYPES.contains(request.getMessageType())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
-                    "messageType must be TEXT or TEMPLATE.");
+                    "Unsupported messageType: " + request.getMessageType());
         }
-        
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CLIENT_NOT_FOUND", "Client not found."));
 
-        // Use default credentials if client specific ones are missing (for dev/demo)
-        // In prod, each client should have their own
-        if (client.getPhoneNumberId() == null) client.setPhoneNumberId(defaultPhoneNumberId);
-        if (client.getAccessToken() == null) client.setAccessToken(defaultAccessToken);
+        validatePayload(request);
 
-        Contact contact = contactRepository.findByPhoneAndClient_Id(request.getTo(), clientId)
-                .orElseGet(() -> {
-                    Contact newContact = new Contact();
-                    newContact.setClient(client);
-                    newContact.setPhone(request.getTo());
-                    newContact.setName(request.getTo()); 
-                    return contactRepository.save(newContact);
-                });
+        Client client = loadClient(clientId);
 
-        SendResponse resp;
+        // Reactions don't create a new contact thread — they target an existing message
+        Contact contact = null;
+        if (request.getMessageType() != Message.MessageType.REACTION) {
+            contact = findOrCreateContact(request.getTo(), clientId, client);
+        }
+
+        // Resolve template if needed
+        Template template = null;
+        if (request.getMessageType() == Message.MessageType.TEMPLATE) {
+            template = resolveTemplate(request.getTemplate(), clientId);
+        }
+
+        // Build message entity
         Message message = new Message();
         message.setClient(client);
-        message.setContactId(contact.getId().toString());
+        message.setContactId(contact != null ? contact.getId() : null);
         message.setDirection(Message.Direction.OUTGOING);
         message.setProvider("META");
         message.setCampaignId(request.getCampaignId());
         message.setStatus(Message.Status.QUEUED);
+        message.setMessageType(request.getMessageType());
+
+        // Context (reply-to)
+        if (request.getContext() != null && request.getContext().getMessageId() != null) {
+            message.setContextMessageId(request.getContext().getMessageId());
+        }
+
+        // Store payload
+        message.setPayloadJson(buildPayloadJson(request, template));
 
         try {
-            if (request.getMessageType() == Message.MessageType.TEMPLATE) {
-                if (request.getTemplateId() == null) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
-                            "templateId is required for TEMPLATE messageType.");
-                }
-                resp = sendTemplateMessage(client, request, message);
-            } else {
-                if (request.getText() == null || request.getText().isBlank()) {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
-                            "text is required for TEXT messageType.");
-                }
-                resp = sendTextMessage(client, request, message);
-            }
-            
+            SendResponse resp = provider.sendMessage(client, request, template);
+
             message.setStatus(Message.Status.SENT);
-            if (resp != null) {
-                message.setProviderMessageId(resp.getProviderMessageId());
-            }
+            message.setProviderMessageId(resp != null ? resp.getProviderMessageId() : null);
             messageRepository.save(message);
+
             if (resp == null) {
                 resp = new SendResponse(message.getProviderMessageId(), "SENT");
             }
@@ -150,18 +164,23 @@ public class MessageService {
             throw e;
         } catch (Exception e) {
             message.setStatus(Message.Status.FAILED);
+            message.setError(e.getMessage());
             messageRepository.save(message);
-            log.error("Failed to send message to {} {}", request.getTo(), e.getMessage());
+            log.error("Failed to send {} to {}: {}", request.getMessageType(), request.getTo(), e.getMessage());
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "PROVIDER_ERROR",
-                    "Failed to send message.");
+                    "Failed to send message: " + e.getMessage());
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  MEDIA UPLOAD SEND (multipart file upload)
+    // ═══════════════════════════════════════════════════════════════
+
     public SendResponse sendMediaMessage(UUID clientId, String to, Message.MessageType messageType,
                                          MultipartFile file, String caption) {
-        if (messageType == null || !SEND_MEDIA_TYPES.contains(messageType)) {
+        if (messageType == null || !UPLOAD_MEDIA_TYPES.contains(messageType)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
-                    "messageType must be IMAGE, VIDEO, or DOCUMENT.");
+                    "messageType must be IMAGE, VIDEO, AUDIO, DOCUMENT, or STICKER.");
         }
         if (file == null || file.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "file is required.");
@@ -170,45 +189,29 @@ public class MessageService {
         String mimeType = firstNonBlank(file.getContentType(), "");
         validateMediaMimeType(messageType, mimeType);
 
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CLIENT_NOT_FOUND", "Client not found."));
-        if (client.getPhoneNumberId() == null || client.getPhoneNumberId().isBlank()) {
-            client.setPhoneNumberId(defaultPhoneNumberId);
-        }
-        if (client.getAccessToken() == null || client.getAccessToken().isBlank()) {
-            client.setAccessToken(defaultAccessToken);
-        }
-
-        Contact contact = contactRepository.findByPhoneAndClient_Id(to, clientId)
-                .orElseGet(() -> {
-                    Contact newContact = new Contact();
-                    newContact.setClient(client);
-                    newContact.setPhone(to);
-                    newContact.setName(to);
-                    return contactRepository.save(newContact);
-                });
+        Client client = loadClient(clientId);
+        Contact contact = findOrCreateContact(to, clientId, client);
 
         Message message = new Message();
         message.setClient(client);
-        message.setContactId(contact.getId().toString());
+        message.setContactId(contact.getId());
         message.setDirection(Message.Direction.OUTGOING);
         message.setProvider("META");
         message.setStatus(Message.Status.QUEUED);
         message.setMessageType(messageType);
 
         try {
-            SendResponse providerResp = provider.sendMedia(
-                    client,
-                    to,
-                    messageType,
+            SendResponse providerResp = provider.sendMediaUpload(
+                    client, to, messageType,
                     file.getBytes(),
                     firstNonBlank(file.getOriginalFilename(), "upload.bin"),
-                    mimeType,
-                    caption
+                    mimeType, caption
             );
 
             message.setProviderMessageId(providerResp.getProviderMessageId());
             message.setStatus(Message.Status.SENT);
+
+            // Build payload JSON for storage
             Map<String, Object> mediaBody = new HashMap<>();
             mediaBody.put("id", providerResp.getMediaId());
             mediaBody.put("mime_type", mimeType);
@@ -231,11 +234,16 @@ public class MessageService {
             throw e;
         } catch (Exception e) {
             message.setStatus(Message.Status.FAILED);
+            message.setError(e.getMessage());
             messageRepository.save(message);
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "PROVIDER_ERROR",
                     "Failed to send media message.");
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  MEDIA DOWNLOAD
+    // ═══════════════════════════════════════════════════════════════
 
     public MessageMediaResult getMessageMedia(UUID messageId, UUID clientId) {
         if (!messageRepository.existsById(messageId)) {
@@ -252,13 +260,7 @@ public class MessageService {
                     "Message type does not support media.");
         }
 
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new MediaApiException(HttpStatus.NOT_FOUND, "MEDIA_NOT_FOUND",
-                        "Media is unavailable for this message."));
-        if ((client.getAccessToken() == null || client.getAccessToken().isBlank())
-                && defaultAccessToken != null && !defaultAccessToken.isBlank()) {
-            client.setAccessToken(defaultAccessToken);
-        }
+        Client client = loadClient(clientId);
 
         MediaMeta mediaMeta = resolveMediaMeta(message);
         if (mediaMeta.mediaId() == null || mediaMeta.mediaId().isBlank()) {
@@ -270,61 +272,171 @@ public class MessageService {
         return new MessageMediaResult(download.getContent(), download.getMimeType(), download.getFilename());
     }
 
-    private SendResponse sendTemplateMessage(Client client, SendMessageRequest request, Message message) throws Exception {
-        Template template = templateRepository.findById(request.getTemplateId())
+    // ═══════════════════════════════════════════════════════════════
+    //  VALIDATION
+    // ═══════════════════════════════════════════════════════════════
+
+    private void validatePayload(SendMessageRequest request) {
+        switch (request.getMessageType()) {
+            case TEXT -> {
+                if (request.getText() == null || request.getText().getBody() == null || request.getText().getBody().isBlank()) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "text.body is required for TEXT messages.");
+                }
+            }
+            case TEMPLATE -> {
+                if (request.getTemplate() == null || request.getTemplate().getTemplateId() == null) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "template.templateId is required for TEMPLATE messages.");
+                }
+            }
+            case IMAGE -> {
+                if (request.getImage() == null || (isBlank(request.getImage().getLink()) && isBlank(request.getImage().getMediaId()))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "image.link or image.mediaId is required.");
+                }
+            }
+            case VIDEO -> {
+                if (request.getVideo() == null || (isBlank(request.getVideo().getLink()) && isBlank(request.getVideo().getMediaId()))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "video.link or video.mediaId is required.");
+                }
+            }
+            case AUDIO -> {
+                if (request.getAudio() == null || (isBlank(request.getAudio().getLink()) && isBlank(request.getAudio().getMediaId()))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "audio.link or audio.mediaId is required.");
+                }
+            }
+            case DOCUMENT -> {
+                if (request.getDocument() == null || (isBlank(request.getDocument().getLink()) && isBlank(request.getDocument().getMediaId()))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "document.link or document.mediaId is required.");
+                }
+            }
+            case STICKER -> {
+                if (request.getSticker() == null || (isBlank(request.getSticker().getLink()) && isBlank(request.getSticker().getMediaId()))) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "sticker.link or sticker.mediaId is required.");
+                }
+            }
+            case LOCATION -> {
+                if (request.getLocation() == null || request.getLocation().getLatitude() == null || request.getLocation().getLongitude() == null) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "location.latitude and location.longitude are required.");
+                }
+            }
+            case CONTACTS -> {
+                if (request.getContacts() == null || request.getContacts().isEmpty()) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "contacts list is required and must not be empty.");
+                }
+                for (ContactCardPayload c : request.getContacts()) {
+                    if (c.getName() == null || isBlank(c.getName().getFormattedName())) {
+                        throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Each contact must have name.formattedName.");
+                    }
+                }
+            }
+            case INTERACTIVE -> {
+                if (request.getInteractive() == null || isBlank(request.getInteractive().getType())) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "interactive.type is required.");
+                }
+                if (request.getInteractive().getBody() == null || isBlank(request.getInteractive().getBody().getText())) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "interactive.body.text is required.");
+                }
+                if (request.getInteractive().getAction() == null) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "interactive.action is required.");
+                }
+            }
+            case REACTION -> {
+                if (request.getReaction() == null || isBlank(request.getReaction().getMessageId())) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "reaction.messageId is required.");
+                }
+                if (request.getReaction().getEmoji() == null) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "reaction.emoji is required (empty string to remove).");
+                }
+            }
+            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Unsupported messageType: " + request.getMessageType());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    private Client loadClient(UUID clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CLIENT_NOT_FOUND", "Client not found."));
+        if (isBlank(client.getPhoneNumberId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CLIENT_NOT_CONFIGURED",
+                    "Client phoneNumberId is not configured.");
+        }
+        if (isBlank(client.getAccessToken())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CLIENT_NOT_CONFIGURED",
+                    "Client accessToken is not configured.");
+        }
+        return client;
+    }
+
+    private Contact findOrCreateContact(String phone, UUID clientId, Client client) {
+        return contactRepository.findByPhoneAndClient_Id(phone, clientId)
+                .orElseGet(() -> {
+                    Contact newContact = new Contact();
+                    newContact.setClient(client);
+                    newContact.setPhone(phone);
+                    newContact.setName(phone);
+                    return contactRepository.save(newContact);
+                });
+    }
+
+    private Template resolveTemplate(TemplatePayload templatePayload, UUID clientId) {
+        Template template = templateRepository.findById(templatePayload.getTemplateId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found."));
-        
-        if (!template.getClient().getId().equals(client.getId())) {
+
+        if (!template.getClient().getId().equals(clientId)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Template not found or access denied.");
         }
         if (template.getStatus() != Template.TemplateStatus.APPROVED) {
             throw new ApiException(HttpStatus.CONFLICT, "TEMPLATE_NOT_APPROVED", "Template is not approved.");
         }
-
-        Map<String, String> vars = request.getVariables() != null ? request.getVariables() : Map.of();
-
-
-        // Prepare payload log
-        String payload = objectMapper.writeValueAsString(Map.of(
-            "type", "template",
-            "templateId", request.getTemplateId(),
-            "templateName", template.getName(),
-            "variables", vars,
-            "body", template.getContentJson()
-        ));
-        message.setPayloadJson(payload);
-        message.setMessageType(Message.MessageType.TEMPLATE);
-
-        return provider.sendTemplate(client, request.getTo(), template, vars);
+        return template;
     }
 
-    private SendResponse sendTextMessage(Client client, SendMessageRequest request, Message message) throws Exception {
-        String textBody = request.getText();
-        
-        // Prepare payload log
-        String payload = objectMapper.writeValueAsString(Map.of(
-            "type", "text",
-            "body", textBody
-        ));
-        message.setPayloadJson(payload);
-        message.setMessageType(Message.MessageType.TEXT);
+    private String buildPayloadJson(SendMessageRequest request, Template template) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("type", request.getMessageType().name().toLowerCase());
 
-        return provider.sendText(client, request.getTo(), textBody);
+            switch (request.getMessageType()) {
+                case TEXT -> payload.put("text", Map.of("body", request.getText().getBody()));
+                case TEMPLATE -> {
+                    Map<String, String> vars = request.getTemplate().getVariables() != null
+                            ? request.getTemplate().getVariables() : Map.of();
+                    payload.put("templateId", request.getTemplate().getTemplateId());
+                    payload.put("templateName", template != null ? template.getName() : null);
+                    payload.put("variables", vars);
+                    payload.put("body", template != null ? template.getContentJson() : null);
+                }
+                case IMAGE -> payload.put("image", request.getImage());
+                case VIDEO -> payload.put("video", request.getVideo());
+                case AUDIO -> payload.put("audio", request.getAudio());
+                case DOCUMENT -> payload.put("document", request.getDocument());
+                case STICKER -> payload.put("sticker", request.getSticker());
+                case LOCATION -> payload.put("location", request.getLocation());
+                case CONTACTS -> payload.put("contacts", request.getContacts());
+                case INTERACTIVE -> payload.put("interactive", request.getInteractive());
+                case REACTION -> payload.put("reaction", request.getReaction());
+            }
+
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            log.warn("Failed to serialize payload JSON: {}", e.getMessage());
+            return "{}";
+        }
     }
 
     private MediaMeta resolveMediaMeta(Message message) {
         String typeKey = message.getMessageType().name().toLowerCase();
-
         MediaMeta fromPayload = extractMediaMetaFromJson(message.getPayloadJson(), typeKey);
         if (fromPayload.mediaId() != null && !fromPayload.mediaId().isBlank()) {
             return fromPayload;
         }
-
         MediaMeta fromResponse = extractMediaMetaFromJson(message.getResponseJson(), typeKey);
         if (fromResponse.mediaId() != null && !fromResponse.mediaId().isBlank()) {
             return fromResponse;
         }
-
         return new MediaMeta(null, null, null);
     }
 
@@ -338,6 +450,7 @@ public class MessageService {
 
             String mediaId = firstNonBlank(
                     typeNode.path("id").asText(null),
+                    typeNode.path("mediaId").asText(null),
                     root.path("id").asText(null)
             );
             String mimeType = firstNonBlank(
@@ -355,15 +468,6 @@ public class MessageService {
             log.warn("Failed to parse media metadata JSON: {}", ex.getMessage());
             return new MediaMeta(null, null, null);
         }
-    }
-
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private void validateMediaMimeType(Message.MessageType messageType, String mimeType) {
@@ -384,20 +488,30 @@ public class MessageService {
                             "VIDEO requires video/* mime type.");
                 }
                 break;
+            case AUDIO:
+                if (!mimeType.startsWith("audio/")) {
+                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "UNSUPPORTED_MEDIA_TYPE",
+                            "AUDIO requires audio/* mime type.");
+                }
+                break;
             case DOCUMENT:
                 if (!(mimeType.startsWith("text/") || ALLOWED_DOCUMENT_MIME_TYPES.contains(mimeType))) {
                     throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "UNSUPPORTED_MEDIA_TYPE",
                             "DOCUMENT type is not supported for this mime type.");
                 }
                 break;
+            case STICKER:
+                if (!mimeType.contains("webp")) {
+                    throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "UNSUPPORTED_MEDIA_TYPE",
+                            "STICKER requires image/webp mime type.");
+                }
+                break;
             default:
                 throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
-                        "Unsupported messageType for send-media.");
+                        "Unsupported messageType for media upload.");
         }
     }
 
     public record MessageMediaResult(byte[] content, String mimeType, String filename) {}
-
     private record MediaMeta(String mediaId, String mimeType, String filename) {}
 }
-

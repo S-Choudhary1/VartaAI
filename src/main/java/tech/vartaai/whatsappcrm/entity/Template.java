@@ -9,7 +9,9 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "templates")
+@Table(name = "templates", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_template_client_provider", columnNames = {"client_id", "provider_template_id"})
+})
 @Data
 public class Template {
 

@@ -63,10 +63,10 @@ public class Message {
     private Client client;
 
     @Column(name = "campaign_id")
-    private String campaignId;
+    private UUID campaignId;
 
     @Column(name = "contact_id")
-    private String contactId;
+    private UUID contactId;
 
     @Column(name = "provider_message_id", length = 255)
     private String providerMessageId;

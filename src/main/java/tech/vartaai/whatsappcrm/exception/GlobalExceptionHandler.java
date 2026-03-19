@@ -40,6 +40,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatus()).body(response);
     }
 
+    @ExceptionHandler(MediaApiException.class)
+    public ResponseEntity<Map<String, Object>> handleMediaApiException(MediaApiException ex) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("error", ex.getErrorCode());
+        response.put("message", ex.getMessage());
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, Object>> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
         Map<String, Object> response = new HashMap<>();

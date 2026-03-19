@@ -87,7 +87,7 @@ public class DashboardService {
         }
         
         // Count messages for this campaign to calculate progress
-        long processed = messageRepository.findByCampaignId(c.getId().toString()).size();
+        long processed = messageRepository.findByCampaignId(c.getId()).size();
 
         map.put("totalContacts", total);
         map.put("processedContacts", processed);

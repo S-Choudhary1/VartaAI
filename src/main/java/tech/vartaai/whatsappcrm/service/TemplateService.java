@@ -4,13 +4,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tech.vartaai.whatsappcrm.exception.ApiException;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateButtonRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateComponentRequest;
-import tech.vartaai.whatsappcrm.dto.TemplateRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateV2Request;
 import tech.vartaai.whatsappcrm.entity.Template;
@@ -26,6 +29,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import tech.vartaai.whatsappcrm.entity.Client;
+
+import static tech.vartaai.whatsappcrm.util.StringUtils.firstNonBlank;
 
 @Service
 public class TemplateService {
@@ -45,69 +50,79 @@ public class TemplateService {
         this.objectMapper = objectMapper;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  CRUD (component-based, formerly "v2")
+    // ═══════════════════════════════════════════════════════════════
+
     @Transactional
-    public TemplateResponse createTemplate(TemplateRequest request, UUID createdBy, UUID clientId) {
+    public TemplateResponse createTemplate(TemplateV2Request request, UUID createdBy, UUID clientId) {
+        validateTemplateRequest(request);
+
         Template template = new Template();
-        
         Client client = new Client();
         client.setId(clientId);
         template.setClient(client);
-
-        template.setName(request.getName());
-        template.setProviderTemplateId(request.getProviderTemplateId());
-        template.setLanguageCode(request.getLanguageCode());
-        template.setInteractionType(request.getInteractionType());
-        template.setType(Template.TemplateType.fromValue(request.getType()));
+        applyFields(template, request);
         template.setCreatedBy(createdBy);
 
-        try {
-            template.setContentJson(request.getContent());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialize template content", e);
+        Template saved = templateRepository.save(template);
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public TemplateResponse updateTemplate(UUID id, TemplateV2Request request, UUID clientId) {
+        validateTemplateRequest(request);
+
+        Template template = templateRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found."));
+        if (!template.getClient().getId().equals(clientId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found.");
         }
 
+        applyFields(template, request);
         Template saved = templateRepository.save(template);
         return toResponse(saved);
     }
 
     public TemplateResponse getTemplateById(UUID id, UUID clientId) {
         Template template = templateRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Template not found"));
-        
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found."));
         if (!template.getClient().getId().equals(clientId)) {
-             throw new RuntimeException("Template not found");
+            throw new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found.");
         }
-
         return toResponse(template);
     }
 
-    @Transactional
-    public MetaTemplateListResponse getTemplatesFromMeta(UUID clientId, Map<String, String> filters) {
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new RuntimeException("Client not found"));
-        MetaTemplateListResponse metaResponse = whatsAppProvider.getTemplates(client, filters);
-        if (metaResponse.getData() != null) {
-            for (MetaTemplateResponse metaTemplate : metaResponse.getData()) {
-                upsertTemplateFromMeta(client, metaTemplate);
-            }
-        }
-        return metaResponse;
+    public List<TemplateResponse> getAllTemplates(UUID clientId) {
+        return templateRepository.findByClient_Id(clientId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
     }
 
-    public MetaTemplateListResponse getApprovedTemplatesFromInternal(UUID clientId) {
-        List<MetaTemplateResponse> data = templateRepository
-                .findByClient_IdAndStatus(clientId, Template.TemplateStatus.APPROVED)
-                .stream()
-                .map(this::toMetaTemplateResponseFromInternal)
-                .collect(Collectors.toList());
-        return new MetaTemplateListResponse(data, null);
+    public Page<TemplateResponse> getAllTemplates(UUID clientId, Pageable pageable) {
+        return templateRepository.findByClient_Id(clientId, pageable)
+                .map(this::toResponse);
     }
+
+    @Transactional
+    public void deleteTemplate(UUID id, UUID clientId) {
+        Template template = templateRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found."));
+        if (!template.getClient().getId().equals(clientId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "TEMPLATE_NOT_FOUND", "Template not found.");
+        }
+        templateRepository.deleteById(id);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  META API OPERATIONS
+    // ═══════════════════════════════════════════════════════════════
 
     @Transactional
     public TemplateResponse createTemplateOnMeta(TemplateV2Request request, UUID clientId, UUID createdBy) {
-        validateTemplateV2Request(request);
+        validateTemplateRequest(request);
         Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new RuntimeException("Client not found"));
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CLIENT_NOT_FOUND", "Client not found."));
 
         Map<String, Object> providerPayload = buildMetaTemplateCreatePayload(request);
         MetaTemplateResponse providerResponse = whatsAppProvider.createTemplate(client, providerPayload);
@@ -128,7 +143,7 @@ public class TemplateService {
         template.setCategory(Template.TemplateCategory.fromValue(providerResponse.getCategory()));
         template.setStatus(Template.TemplateStatus.fromValue(providerResponse.getStatus()));
         template.setType(detectTemplateType(request.getComponents()));
-        template.setContentJson(extractBodyTextFromV2Components(request.getComponents()));
+        template.setContentJson(extractBodyTextFromComponents(request.getComponents()));
         template.setLastSyncedAt(java.time.OffsetDateTime.now());
 
         try {
@@ -142,73 +157,26 @@ public class TemplateService {
         return toResponse(saved);
     }
 
-    public List<TemplateResponse> getAllTemplates(UUID clientId) {
-        return templateRepository.findByClient_Id(clientId).stream()
-                .map(this::toResponse)
+    @Transactional
+    public MetaTemplateListResponse getTemplatesFromMeta(UUID clientId, Map<String, String> filters) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CLIENT_NOT_FOUND", "Client not found."));
+        MetaTemplateListResponse metaResponse = whatsAppProvider.getTemplates(client, filters);
+        if (metaResponse.getData() != null) {
+            for (MetaTemplateResponse metaTemplate : metaResponse.getData()) {
+                upsertTemplateFromMeta(client, metaTemplate);
+            }
+        }
+        return metaResponse;
+    }
+
+    public MetaTemplateListResponse getApprovedTemplatesFromInternal(UUID clientId) {
+        List<MetaTemplateResponse> data = templateRepository
+                .findByClient_IdAndStatus(clientId, Template.TemplateStatus.APPROVED)
+                .stream()
+                .map(this::toMetaTemplateResponseFromInternal)
                 .collect(Collectors.toList());
-    }
-
-    @Transactional
-    public TemplateResponse createTemplateV2(TemplateV2Request request, UUID createdBy, UUID clientId) {
-        validateTemplateV2Request(request);
-
-        Template template = new Template();
-        Client client = new Client();
-        client.setId(clientId);
-        template.setClient(client);
-        applyV2Fields(template, request);
-        template.setCreatedBy(createdBy);
-
-        Template saved = templateRepository.save(template);
-        return toResponse(saved);
-    }
-
-    @Transactional
-    public TemplateResponse updateTemplate(UUID id, TemplateRequest request, UUID clientId) {
-        Template template = templateRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Template not found"));
-
-        if (!template.getClient().getId().equals(clientId)) {
-             throw new RuntimeException("Template not found");
-        }
-
-        template.setName(request.getName());
-        template.setProviderTemplateId(request.getProviderTemplateId());
-        template.setLanguageCode(request.getLanguageCode());
-        template.setInteractionType(request.getInteractionType());
-        template.setType(Template.TemplateType.fromValue(request.getType()));
-
-        template.setContentJson(request.getContent());
-
-        Template saved = templateRepository.save(template);
-        return toResponse(saved);
-    }
-
-    @Transactional
-    public TemplateResponse updateTemplateV2(UUID id, TemplateV2Request request, UUID clientId) {
-        validateTemplateV2Request(request);
-
-        Template template = templateRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Template not found"));
-
-        if (!template.getClient().getId().equals(clientId)) {
-            throw new RuntimeException("Template not found");
-        }
-
-        applyV2Fields(template, request);
-        Template saved = templateRepository.save(template);
-        return toResponse(saved);
-    }
-
-    @Transactional
-    public void deleteTemplate(UUID id, UUID clientId) {
-        Template template = templateRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Template not found"));
-
-        if (!template.getClient().getId().equals(clientId)) {
-             throw new RuntimeException("Template not found");
-        }
-        templateRepository.deleteById(id);
+        return new MetaTemplateListResponse(data, null);
     }
 
     public String renderTemplate(Template template, Map<String, String> variables) {
@@ -216,32 +184,42 @@ public class TemplateService {
             TypeReference<Map<String, Object>> typeRef = new TypeReference<>() {};
             Map<String, Object> content = objectMapper.readValue(template.getContentJson(), typeRef);
             String text = (String) content.getOrDefault("text", "");
-            
             for (Map.Entry<String, String> entry : variables.entrySet()) {
                 text = text.replace("{{" + entry.getKey() + "}}", entry.getValue());
             }
-            
             return text;
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to render template", e);
         }
     }
 
-    private void applyV2Fields(Template template, TemplateV2Request request) {
+    // ═══════════════════════════════════════════════════════════════
+    //  INTERNAL HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    private void applyFields(Template template, TemplateV2Request request) {
         template.setName(request.getName());
         template.setLanguageCode(request.getLanguageCode());
         template.setCategory(Template.TemplateCategory.fromValue(request.getCategory()));
         template.setType(detectTemplateType(request.getComponents()));
         template.setStatus(Template.TemplateStatus.DRAFT);
 
-        TemplateComponentRequest body = request.getComponents().stream()
-                .filter(c -> "BODY".equalsIgnoreCase(c.getType()))
-                .findFirst()
-                .orElse(null);
-        template.setContentJson(body != null ? body.getText() : "");
+        template.setContentJson(extractBodyTextFromComponents(request.getComponents()));
 
         try {
             template.setComponentsJson(objectMapper.writeValueAsString(request.getComponents()));
+
+            // Store example/sample values
+            Map<String, List<String>> exampleValues = new HashMap<>();
+            for (TemplateComponentRequest component : request.getComponents()) {
+                if (component.getSampleValues() != null && !component.getSampleValues().isEmpty()) {
+                    exampleValues.put(component.getType().toUpperCase(), component.getSampleValues());
+                }
+            }
+            if (!exampleValues.isEmpty()) {
+                template.setExampleValuesJson(objectMapper.writeValueAsString(exampleValues));
+            }
+
             Map<String, Object> rawPayload = new HashMap<>();
             rawPayload.put("name", request.getName());
             rawPayload.put("category", request.getCategory());
@@ -249,7 +227,7 @@ public class TemplateService {
             rawPayload.put("components", request.getComponents());
             template.setRawTemplateJson(objectMapper.writeValueAsString(rawPayload));
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize v2 template payload", e);
+            throw new RuntimeException("Failed to serialize template payload", e);
         }
     }
 
@@ -260,16 +238,12 @@ public class TemplateService {
                         c.getFormat() != null &&
                         !"TEXT".equalsIgnoreCase(c.getFormat()));
 
-        if (hasButtons) {
-            return Template.TemplateType.INTERACTIVE;
-        }
-        if (hasHeaderMedia) {
-            return Template.TemplateType.MEDIA;
-        }
+        if (hasButtons) return Template.TemplateType.INTERACTIVE;
+        if (hasHeaderMedia) return Template.TemplateType.MEDIA;
         return Template.TemplateType.TEXT;
     }
 
-    private void validateTemplateV2Request(TemplateV2Request request) {
+    private void validateTemplateRequest(TemplateV2Request request) {
         if (!request.getName().matches("^[a-z0-9_]+$")) {
             throw new RuntimeException("Template name must contain lowercase letters, numbers, and underscores only");
         }
@@ -329,7 +303,6 @@ public class TemplateService {
             }
             return;
         }
-
         boolean valid = "IMAGE".equals(format) || "VIDEO".equals(format)
                 || "DOCUMENT".equals(format) || "LOCATION".equals(format);
         if (!valid) {
@@ -344,7 +317,6 @@ public class TemplateService {
         if (buttons.size() > 10) {
             throw new RuntimeException("BUTTONS component supports maximum 10 buttons");
         }
-
         for (TemplateButtonRequest button : buttons) {
             String type = button.getType() == null ? "" : button.getType().toUpperCase();
             switch (type) {
@@ -402,9 +374,8 @@ public class TemplateService {
     }
 
     private void upsertTemplateFromMeta(Client client, MetaTemplateResponse metaTemplate) {
-        if (metaTemplate == null || metaTemplate.getId() == null) {
-            return;
-        }
+        if (metaTemplate == null || metaTemplate.getId() == null) return;
+
         Template template = templateRepository
                 .findByClient_IdAndProviderTemplateId(client.getId(), metaTemplate.getId())
                 .orElseGet(() -> {
@@ -422,6 +393,7 @@ public class TemplateService {
         template.setQualityRating(Template.QualityRating.fromValue(metaTemplate.getQualityScore()));
         template.setType(detectTemplateTypeFromMetaComponents(metaTemplate.getComponents()));
         template.setContentJson(extractBodyTextFromMetaComponents(metaTemplate.getComponents()));
+
         try {
             if (metaTemplate.getComponents() != null && !metaTemplate.getComponents().isNull()) {
                 template.setComponentsJson(objectMapper.writeValueAsString(metaTemplate.getComponents()));
@@ -457,29 +429,22 @@ public class TemplateService {
                 template.getCategory() != null ? template.getCategory().name() : null,
                 template.getLanguageCode(),
                 template.getQualityRating() != null ? template.getQualityRating().name() : null,
-                null,
-                null,
+                null, null,
                 componentsNode,
                 rawNode
         );
     }
 
     private Template.TemplateType detectTemplateTypeFromMetaComponents(JsonNode components) {
-        if (components == null || !components.isArray()) {
-            return Template.TemplateType.CUSTOM;
-        }
+        if (components == null || !components.isArray()) return Template.TemplateType.CUSTOM;
         boolean hasButtons = false;
         boolean hasHeaderMedia = false;
         for (JsonNode component : components) {
             String type = component.path("type").asText("");
-            if ("BUTTONS".equalsIgnoreCase(type)) {
-                hasButtons = true;
-            }
+            if ("BUTTONS".equalsIgnoreCase(type)) hasButtons = true;
             if ("HEADER".equalsIgnoreCase(type)) {
                 String format = component.path("format").asText("");
-                if (!format.isBlank() && !"TEXT".equalsIgnoreCase(format)) {
-                    hasHeaderMedia = true;
-                }
+                if (!format.isBlank() && !"TEXT".equalsIgnoreCase(format)) hasHeaderMedia = true;
             }
         }
         if (hasButtons) return Template.TemplateType.INTERACTIVE;
@@ -488,9 +453,7 @@ public class TemplateService {
     }
 
     private String extractBodyTextFromMetaComponents(JsonNode components) {
-        if (components == null || !components.isArray()) {
-            return "";
-        }
+        if (components == null || !components.isArray()) return "";
         for (JsonNode component : components) {
             if ("BODY".equalsIgnoreCase(component.path("type").asText(""))) {
                 return firstNonBlank(component.path("text").asText(null), "");
@@ -499,13 +462,14 @@ public class TemplateService {
         return "";
     }
 
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
+    private String extractBodyTextFromComponents(List<TemplateComponentRequest> components) {
+        if (components == null) return "";
+        for (TemplateComponentRequest component : components) {
+            if ("BODY".equalsIgnoreCase(component.getType())) {
+                return firstNonBlank(component.getText(), "");
             }
         }
-        return null;
+        return "";
     }
 
     private Map<String, Object> buildMetaTemplateCreatePayload(TemplateV2Request request) {
@@ -541,9 +505,7 @@ public class TemplateService {
                                 || "DOCUMENT".equalsIgnoreCase(component.getFormat())) {
                             example.put("header_handle", component.getSampleValues());
                         }
-                        if (!example.isEmpty()) {
-                            node.put("example", example);
-                        }
+                        if (!example.isEmpty()) node.put("example", example);
                     }
                     break;
                 case "BODY":
@@ -573,22 +535,9 @@ public class TemplateService {
                     }
                     node.put("buttons", buttons);
                     break;
-                default:
-                    break;
             }
             result.add(node);
         }
         return result;
     }
-
-    private String extractBodyTextFromV2Components(List<TemplateComponentRequest> components) {
-        if (components == null) return "";
-        for (TemplateComponentRequest component : components) {
-            if ("BODY".equalsIgnoreCase(component.getType())) {
-                return firstNonBlank(component.getText(), "");
-            }
-        }
-        return "";
-    }
 }
-

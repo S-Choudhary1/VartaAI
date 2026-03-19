@@ -1,5 +1,9 @@
 package tech.vartaai.whatsappcrm.controller;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
@@ -51,8 +55,10 @@ public class CampaignController {
     }
 
     @GetMapping
-    public ResponseEntity<java.util.List<CampaignDto>> getAllCampaigns(@RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(campaignService.getAllCampaigns(clientId));
+    public ResponseEntity<Page<CampaignDto>> getAllCampaigns(
+            @RequestHeader("X-Client-Id") UUID clientId,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(campaignService.getAllCampaigns(clientId, pageable));
     }
 
     @GetMapping("/{id}/messages")

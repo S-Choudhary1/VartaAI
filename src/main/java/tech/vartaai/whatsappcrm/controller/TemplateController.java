@@ -1,18 +1,20 @@
 package tech.vartaai.whatsappcrm.controller;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.vartaai.whatsappcrm.dto.MetaTemplateListResponse;
-import tech.vartaai.whatsappcrm.dto.TemplateRequest;
 import tech.vartaai.whatsappcrm.dto.TemplateResponse;
 import tech.vartaai.whatsappcrm.dto.TemplateV2Request;
 import tech.vartaai.whatsappcrm.service.TemplateService;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -29,15 +31,17 @@ public class TemplateController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
-    public ResponseEntity<TemplateResponse> createTemplate(@Valid @RequestBody TemplateRequest request,
+    public ResponseEntity<TemplateResponse> createTemplate(@Valid @RequestBody TemplateV2Request request,
                                                            @RequestHeader("X-Client-Id") UUID clientId) {
         TemplateResponse response = templateService.createTemplate(request, UUID.randomUUID(), clientId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping
-    public ResponseEntity<List<TemplateResponse>> getAllTemplates(@RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(templateService.getAllTemplates(clientId));
+    public ResponseEntity<Page<TemplateResponse>> getAllTemplates(
+            @RequestHeader("X-Client-Id") UUID clientId,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(templateService.getAllTemplates(clientId, pageable));
     }
 
     @GetMapping("/meta")
@@ -80,26 +84,10 @@ public class TemplateController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
-    public ResponseEntity<TemplateResponse> updateTemplate(@PathVariable UUID id, 
-                                                           @Valid @RequestBody TemplateRequest request,
+    public ResponseEntity<TemplateResponse> updateTemplate(@PathVariable UUID id,
+                                                           @Valid @RequestBody TemplateV2Request request,
                                                            @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(templateService.updateTemplate(id, request, clientId));
-    }
-
-    @PostMapping("/v2")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
-    public ResponseEntity<TemplateResponse> createTemplateV2(@Valid @RequestBody TemplateV2Request request,
-                                                             @RequestHeader("X-Client-Id") UUID clientId) {
-        TemplateResponse response = templateService.createTemplateV2(request, UUID.randomUUID(), clientId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    @PutMapping("/v2/{id}")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
-    public ResponseEntity<TemplateResponse> updateTemplateV2(@PathVariable UUID id,
-                                                             @Valid @RequestBody TemplateV2Request request,
-                                                             @RequestHeader("X-Client-Id") UUID clientId) {
-        return ResponseEntity.ok(templateService.updateTemplateV2(id, request, clientId));
     }
 
     @DeleteMapping("/{id}")
@@ -109,4 +97,3 @@ public class TemplateController {
         return ResponseEntity.noContent().build();
     }
 }
-
