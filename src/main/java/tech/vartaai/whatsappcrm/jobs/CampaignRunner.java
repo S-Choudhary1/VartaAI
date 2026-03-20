@@ -64,7 +64,9 @@ public class CampaignRunner {
     }
 
     public void processCampaign(Campaign campaign) {
-        log.info("CAMPAIGN_START campaignId={} name={}", campaign.getId(), campaign.getName());
+        log.info("CAMPAIGN_START campaignId={} name={} templateId={} flowId={} totalContacts={}",
+                campaign.getId(), campaign.getName(), campaign.getTemplateId(),
+                campaign.getFlowId(), campaign.getTotalContacts());
 
         campaign.setStatus(Status.RUNNING);
         campaign.setProcessedContacts(0);
@@ -97,6 +99,17 @@ public class CampaignRunner {
         int successCount = 0;
         int totalTargets = targets.size();
 
+        // Pre-fetch the flow once if campaign has one attached
+        Flow campaignFlow = null;
+        if (campaign.getFlowId() != null) {
+            campaignFlow = flowRepository.findById(campaign.getFlowId()).orElse(null);
+            if (campaignFlow != null && campaignFlow.getStatus() != Flow.FlowStatus.ACTIVE) {
+                log.warn("CAMPAIGN_FLOW_NOT_ACTIVE campaignId={} flowId={} status={}",
+                        campaign.getId(), campaign.getFlowId(), campaignFlow.getStatus());
+                campaignFlow = null;
+            }
+        }
+
         for (Map<String, Object> target : targets) {
             String phone = target.get("phone") != null ? target.get("phone").toString() : null;
             if (phone == null || phone.isBlank()) continue;
@@ -121,17 +134,21 @@ public class CampaignRunner {
 
                 messageService.sendMessage(req, clientId);
                 successCount++;
+                log.info("CAMPAIGN_MSG_SENT campaignId={} phone={} count={}/{}",
+                        campaign.getId(), phone, successCount, totalTargets);
 
-                // Enroll contact into flow if campaign has an attached flow
-                if (campaign.getFlowId() != null) {
+                // Enroll contact into flow if campaign has an attached active flow
+                if (campaignFlow != null) {
                     try {
-                        Flow flow = flowRepository.findById(campaign.getFlowId()).orElse(null);
-                        if (flow != null && flow.getStatus() == Flow.FlowStatus.ACTIVE) {
-                            Contact contact = contactRepository
-                                    .findByPhoneAndClient_Id(phone, clientId).orElse(null);
-                            if (contact != null) {
-                                flowEngineService.startFlowForContact(flow, contact, campaign.getId());
-                            }
+                        Contact contact = contactRepository
+                                .findByPhoneAndClient_Id(phone, clientId).orElse(null);
+                        if (contact != null) {
+                            log.info("CAMPAIGN_FLOW_ENROLL campaignId={} flowId={} phone={} contactId={}",
+                                    campaign.getId(), campaignFlow.getId(), phone, contact.getId());
+                            flowEngineService.startFlowForContact(campaignFlow, contact, campaign.getId());
+                            log.info("CAMPAIGN_FLOW_ENROLLED campaignId={} phone={}", campaign.getId(), phone);
+                        } else {
+                            log.warn("CAMPAIGN_FLOW_ENROLL_NO_CONTACT campaignId={} phone={}", campaign.getId(), phone);
                         }
                     } catch (Exception flowErr) {
                         log.error("CAMPAIGN_FLOW_ENROLL_FAILED campaignId={} phone={} err={}",

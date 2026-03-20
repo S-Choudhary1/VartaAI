@@ -65,6 +65,9 @@ public class CampaignService {
      */
     @Transactional
     public Campaign uploadCsv(String name, UUID templateId, OffsetDateTime scheduledAt, UUID uploadedBy, MultipartFile file, UUID clientId, UUID flowId) {
+        log.info("CAMPAIGN_UPLOAD_CSV name='{}' templateId={} flowId={} clientId={} scheduledAt={} fileSize={}",
+                name, templateId, flowId, clientId, scheduledAt,
+                file != null ? file.getSize() : 0);
         Campaign campaign = new Campaign();
         campaign.setName(name);
         campaign.setTemplateId(templateId);
@@ -88,8 +91,12 @@ public class CampaignService {
             campaign.setProcessedContacts(0);
             campaign.setCsvMetadataJson(objectMapper.writeValueAsString(meta));
 
+            log.info("CAMPAIGN_CSV_PARSED campaignName='{}' rows={}", name, rows.size());
             campaignRunner.processCampaign(campaign);
-            return campaignRepository.save(campaign);
+            Campaign saved = campaignRepository.save(campaign);
+            log.info("CAMPAIGN_CREATED campaignId={} status={} processedContacts={}",
+                    saved.getId(), saved.getStatus(), saved.getProcessedContacts());
+            return saved;
         } catch (IOException e) {
             campaign.setStatus(Status.FAILED);
             campaignRepository.save(campaign);
@@ -146,6 +153,9 @@ public class CampaignService {
         Campaign c = getCampaign(campaignId, clientId);
         List<Message> campaignMessages = messageRepository.findByCampaignId(c.getId());
         boolean hasFlow = c.getFlowId() != null;
+
+        log.info("CAMPAIGN_EXPORT campaignId={} messageCount={} hasFlow={} flowId={}",
+                campaignId, campaignMessages.size(), hasFlow, c.getFlowId());
 
         StringBuilder sb = new StringBuilder();
 

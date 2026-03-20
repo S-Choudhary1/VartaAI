@@ -1,6 +1,7 @@
 package tech.vartaai.whatsappcrm.controller;
 
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/flows")
+@Slf4j
 public class FlowController {
 
     private final FlowService flowService;
@@ -45,6 +47,7 @@ public class FlowController {
             @Valid @RequestBody FlowRequest request,
             @RequestHeader("X-Client-Id") UUID clientId,
             @RequestAttribute(value = "userId", required = false) UUID userId) {
+        log.info("FLOW_API_CREATE clientId={} name='{}' triggerType={}", clientId, request.getName(), request.getTriggerType());
         FlowResponse response = flowService.createFlow(request, clientId, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -54,6 +57,7 @@ public class FlowController {
             @RequestHeader("X-Client-Id") UUID clientId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        log.info("FLOW_API_LIST clientId={} page={} size={}", clientId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(flowService.listFlows(clientId, pageable));
     }
@@ -62,6 +66,7 @@ public class FlowController {
     public ResponseEntity<FlowResponse> getFlow(
             @PathVariable UUID id,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_GET flowId={} clientId={}", id, clientId);
         return ResponseEntity.ok(flowService.getFlow(id, clientId));
     }
 
@@ -70,6 +75,7 @@ public class FlowController {
             @PathVariable UUID id,
             @Valid @RequestBody FlowRequest request,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_UPDATE flowId={} clientId={} name='{}'", id, clientId, request.getName());
         return ResponseEntity.ok(flowService.updateFlow(id, request, clientId));
     }
 
@@ -77,6 +83,7 @@ public class FlowController {
     public ResponseEntity<Void> deleteFlow(
             @PathVariable UUID id,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_DELETE flowId={} clientId={}", id, clientId);
         flowService.deleteFlow(id, clientId);
         return ResponseEntity.noContent().build();
     }
@@ -85,6 +92,7 @@ public class FlowController {
     public ResponseEntity<FlowResponse> activateFlow(
             @PathVariable UUID id,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_ACTIVATE flowId={} clientId={}", id, clientId);
         return ResponseEntity.ok(flowService.activateFlow(id, clientId));
     }
 
@@ -92,6 +100,7 @@ public class FlowController {
     public ResponseEntity<FlowResponse> pauseFlow(
             @PathVariable UUID id,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_PAUSE flowId={} clientId={}", id, clientId);
         return ResponseEntity.ok(flowService.pauseFlow(id, clientId));
     }
 
@@ -101,6 +110,7 @@ public class FlowController {
             @RequestHeader("X-Client-Id") UUID clientId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        log.info("FLOW_API_LIST_EXECUTIONS flowId={} clientId={} page={} size={}", id, clientId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(flowService.listExecutions(id, clientId, pageable));
     }
@@ -110,6 +120,7 @@ public class FlowController {
             @PathVariable UUID id,
             @PathVariable UUID execId,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_GET_EXECUTION flowId={} execId={} clientId={}", id, execId, clientId);
         return ResponseEntity.ok(flowService.getExecution(id, execId, clientId));
     }
 
@@ -117,6 +128,7 @@ public class FlowController {
     public ResponseEntity<Map<String, Object>> getFlowAnalytics(
             @PathVariable UUID id,
             @RequestHeader("X-Client-Id") UUID clientId) {
+        log.info("FLOW_API_ANALYTICS flowId={} clientId={}", id, clientId);
         return ResponseEntity.ok(flowService.getFlowAnalytics(id, clientId));
     }
 
@@ -126,6 +138,8 @@ public class FlowController {
             @RequestHeader("X-Client-Id") UUID clientId,
             @RequestBody Map<String, String> body) {
         String contactIdStr = body.get("contactId");
+        log.info("FLOW_API_ENROLL flowId={} clientId={} contactId={}", id, clientId, contactIdStr);
+
         if (contactIdStr == null || contactIdStr.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "contactId is required.");
         }
@@ -135,6 +149,7 @@ public class FlowController {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
 
         if (flow.getStatus() != Flow.FlowStatus.ACTIVE) {
+            log.warn("FLOW_API_ENROLL_NOT_ACTIVE flowId={} status={}", id, flow.getStatus());
             throw new ApiException(HttpStatus.BAD_REQUEST, "FLOW_NOT_ACTIVE", "Flow is not active.");
         }
 
@@ -142,6 +157,7 @@ public class FlowController {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "CONTACT_NOT_FOUND", "Contact not found."));
 
         flowEngineService.startFlowForContact(flow, contact, null);
+        log.info("FLOW_API_ENROLLED flowId={} contactId={}", id, contactId);
         return ResponseEntity.ok(Map.of("status", "enrolled"));
     }
 }

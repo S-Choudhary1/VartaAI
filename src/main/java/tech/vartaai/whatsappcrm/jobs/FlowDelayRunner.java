@@ -27,14 +27,17 @@ public class FlowDelayRunner {
     public void processTimeouts() {
         OffsetDateTime now = OffsetDateTime.now();
 
-        // Process WAITING executions that have timed out
         List<FlowExecution> timedOut = flowExecutionRepository.findTimedOutExecutions(now);
+        if (!timedOut.isEmpty()) {
+            log.info("FLOW_TIMEOUT_CHECK found={} timedOut executions to process", timedOut.size());
+        }
         for (FlowExecution exec : timedOut) {
             try {
-                log.info("FLOW_TIMEOUT execId={}", exec.getId());
+                log.info("FLOW_TIMEOUT_PROCESS execId={} contactId={} currentNode={} resumeAfter={}",
+                        exec.getId(), exec.getContactId(), exec.getCurrentNodeId(), exec.getResumeAfter());
                 flowEngineService.handleTimedOutExecution(exec);
             } catch (Exception e) {
-                log.error("FLOW_TIMEOUT_ERROR execId={} err={}", exec.getId(), e.getMessage());
+                log.error("FLOW_TIMEOUT_ERROR execId={} err={}", exec.getId(), e.getMessage(), e);
             }
         }
     }

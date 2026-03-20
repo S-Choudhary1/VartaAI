@@ -38,6 +38,9 @@ public class FlowService {
 
     @Transactional
     public FlowResponse createFlow(FlowRequest request, UUID clientId, UUID createdBy) {
+        log.info("FLOW_CREATE clientId={} name='{}' triggerType={} createdBy={}",
+                clientId, request.getName(), request.getTriggerType(), createdBy);
+
         Flow flow = new Flow();
         Client client = new Client();
         client.setId(clientId);
@@ -54,6 +57,7 @@ public class FlowService {
         flow.setCreatedBy(createdBy);
 
         Flow saved = flowRepository.save(flow);
+        log.info("FLOW_CREATED flowId={} name='{}' status={}", saved.getId(), saved.getName(), saved.getStatus());
         return toResponse(saved);
     }
 
@@ -72,6 +76,7 @@ public class FlowService {
 
     @Transactional
     public FlowResponse updateFlow(UUID id, FlowRequest request, UUID clientId) {
+        log.info("FLOW_UPDATE flowId={} clientId={} name='{}'", id, clientId, request.getName());
         Flow flow = flowRepository.findByIdAndClient_Id(id, clientId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
 
@@ -89,38 +94,47 @@ public class FlowService {
         }
 
         Flow saved = flowRepository.save(flow);
+        log.info("FLOW_UPDATED flowId={} version={} status={}", saved.getId(), saved.getVersion(), saved.getStatus());
         return toResponse(saved);
     }
 
     @Transactional
     public void deleteFlow(UUID id, UUID clientId) {
+        log.info("FLOW_DELETE flowId={} clientId={}", id, clientId);
         Flow flow = flowRepository.findByIdAndClient_Id(id, clientId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
         flow.setStatus(Flow.FlowStatus.ARCHIVED);
         flowRepository.save(flow);
+        log.info("FLOW_ARCHIVED flowId={} name='{}'", flow.getId(), flow.getName());
     }
 
     @Transactional
     public FlowResponse activateFlow(UUID id, UUID clientId) {
+        log.info("FLOW_ACTIVATE flowId={} clientId={}", id, clientId);
         Flow flow = flowRepository.findByIdAndClient_Id(id, clientId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
 
         if (flow.getDefinitionJson() == null || flow.getDefinitionJson().isBlank()) {
+            log.warn("FLOW_ACTIVATE_FAILED flowId={} — no definition", flow.getId());
             throw new ApiException(HttpStatus.BAD_REQUEST, "FLOW_NO_DEFINITION",
                     "Cannot activate a flow without a definition.");
         }
 
         flow.setStatus(Flow.FlowStatus.ACTIVE);
         Flow saved = flowRepository.save(flow);
+        log.info("FLOW_ACTIVATED flowId={} name='{}' triggerType={} keywords='{}'",
+                saved.getId(), saved.getName(), saved.getTriggerType(), saved.getTriggerKeywords());
         return toResponse(saved);
     }
 
     @Transactional
     public FlowResponse pauseFlow(UUID id, UUID clientId) {
+        log.info("FLOW_PAUSE flowId={} clientId={}", id, clientId);
         Flow flow = flowRepository.findByIdAndClient_Id(id, clientId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
         flow.setStatus(Flow.FlowStatus.PAUSED);
         Flow saved = flowRepository.save(flow);
+        log.info("FLOW_PAUSED flowId={} name='{}'", saved.getId(), saved.getName());
         return toResponse(saved);
     }
 

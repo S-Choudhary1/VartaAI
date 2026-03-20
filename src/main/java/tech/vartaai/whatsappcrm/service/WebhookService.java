@@ -169,10 +169,13 @@ public class WebhookService {
 
                     // Also process flow engine for replies
                     Contact replyContact = findOrCreateContact(from, contactName, client);
+                    log.info("FLOW_WEBHOOK_REPLY_TRIGGER contactId={} phone={} type={} contextMsgId={} replyMsgId={}",
+                            replyContact.getId(), from, type, contextId, msgId);
                     try {
                         flowEngineService.processIncomingMessage(replyContact, client, responseJson, msgId);
                     } catch (Exception e) {
-                        log.error("FLOW_ENGINE_REPLY_ERROR msgId={} err={}", msgId, e.getMessage());
+                        log.error("FLOW_ENGINE_REPLY_ERROR msgId={} contactId={} err={}",
+                                msgId, replyContact.getId(), e.getMessage(), e);
                     }
                     continue;
                 }
@@ -202,12 +205,15 @@ public class WebhookService {
 
             log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
 
-            // Process flow engine for incoming messages
+            // Process flow engine for incoming messages (standalone, no context)
+            log.info("FLOW_WEBHOOK_STANDALONE_TRIGGER contactId={} phone={} type={} msgId={}",
+                    contact.getId(), from, type, msgId);
             try {
                 String responseJsonForFlow = buildUserResponseJson(type, msg);
                 flowEngineService.processIncomingMessage(contact, client, responseJsonForFlow, msgId);
             } catch (Exception e) {
-                log.error("FLOW_ENGINE_WEBHOOK_ERROR msgId={} err={}", msgId, e.getMessage());
+                log.error("FLOW_ENGINE_WEBHOOK_ERROR msgId={} contactId={} err={}",
+                        msgId, contact.getId(), e.getMessage(), e);
             }
         }
     }
