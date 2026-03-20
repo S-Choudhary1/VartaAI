@@ -145,9 +145,15 @@ public class CampaignService {
     }
 
     /**
-     * Build a CSV string for all messages belonging to a campaign, including
-     * contact phone, message content (resolved), status, user response,
-     * and flow data if a flow is attached.
+     * Export campaign responses as CSV.
+     *
+     * For campaigns WITH a flow attached, the output is a flat conversation:
+     *   phone, message_1, response_1, message_2, response_2, ...
+     * where message_1 = campaign template, response_1 = user reply,
+     * message_2 = flow's next message after condition match, etc.
+     *
+     * For campaigns WITHOUT a flow, standard format:
+     *   phone, message, message_type, status, user_response
      */
     public String exportCampaignResponsesCsv(UUID campaignId, UUID clientId) {
         Campaign c = getCampaign(campaignId, clientId);
@@ -157,100 +163,164 @@ public class CampaignService {
         log.info("CAMPAIGN_EXPORT campaignId={} messageCount={} hasFlow={} flowId={}",
                 campaignId, campaignMessages.size(), hasFlow, c.getFlowId());
 
-        StringBuilder sb = new StringBuilder();
-
         if (hasFlow) {
-            sb.append("contact_phone,campaign_message,message_status,user_response,flow_status,flow_messages,flow_responses,flow_path\n");
+            return exportFlowCampaignCsv(c, campaignMessages);
         } else {
-            sb.append("contact_phone,message,message_type,status,user_response\n");
+            return exportSimpleCampaignCsv(campaignMessages);
+        }
+    }
+
+    /**
+     * Flow campaign export: flat conversation columns per contact.
+     * Builds pairs of (message_sent, user_response) from campaign message + flow steps.
+     */
+    private String exportFlowCampaignCsv(Campaign c, List<Message> campaignMessages) {
+        // Group campaign messages by contactId
+        Map<UUID, Message> campMsgByContact = new LinkedHashMap<>();
+        for (Message m : campaignMessages) {
+            if (m.getContactId() != null) {
+                campMsgByContact.putIfAbsent(m.getContactId(), m);
+            }
         }
 
-        if (hasFlow) {
-            // Group campaign messages by contactId, then enrich with flow data
-            Map<UUID, List<Message>> byContact = campaignMessages.stream()
-                    .filter(m -> m.getContactId() != null)
-                    .collect(Collectors.groupingBy(Message::getContactId));
+        // Get flow executions for this campaign
+        List<FlowExecution> executions = flowExecutionRepository.findByCampaignIdOrderByStartedAtAsc(c.getId());
+        Map<UUID, FlowExecution> execByContact = new LinkedHashMap<>();
+        for (FlowExecution exec : executions) {
+            execByContact.putIfAbsent(exec.getContactId(), exec);
+        }
 
-            List<FlowExecution> executions = flowExecutionRepository.findByCampaignIdOrderByStartedAtAsc(c.getId());
-            Map<UUID, FlowExecution> execByContact = new LinkedHashMap<>();
-            for (FlowExecution exec : executions) {
-                execByContact.putIfAbsent(exec.getContactId(), exec);
-            }
+        // Collect all contacts
+        Set<UUID> allContactIds = new LinkedHashSet<>(campMsgByContact.keySet());
+        allContactIds.addAll(execByContact.keySet());
 
-            // Merge all contacts (from messages + from executions)
-            Set<UUID> allContactIds = new LinkedHashSet<>(byContact.keySet());
-            allContactIds.addAll(execByContact.keySet());
+        // Build conversation pairs for each contact: [(msg1, resp1), (msg2, resp2), ...]
+        // and track the max number of pairs to determine column count
+        List<ContactConversation> conversations = new ArrayList<>();
+        int maxPairs = 1; // at least 1 for the campaign message
 
-            for (UUID contactId : allContactIds) {
-                String phone = resolvePhone(contactId);
-                List<Message> msgs = byContact.getOrDefault(contactId, List.of());
+        for (UUID contactId : allContactIds) {
+            String phone = resolvePhone(contactId);
+            List<String[]> pairs = new ArrayList<>(); // each entry = [message, response]
 
-                // Campaign message content + response
-                String campMsg = msgs.isEmpty() ? "" : extractMessageContent(msgs.get(0));
-                String campStatus = msgs.isEmpty() ? "" : (msgs.get(0).getStatus() != null ? msgs.get(0).getStatus().name() : "");
-                String campResponse = msgs.isEmpty() ? "" : extractUserResponse(msgs.get(0).getResponseJson());
+            // Pair 1: campaign template message + user reply
+            Message campMsg = campMsgByContact.get(contactId);
+            String campContent = campMsg != null ? extractMessageContent(campMsg) : "";
+            String campReply = campMsg != null ? extractUserResponse(campMsg.getResponseJson()) : "";
+            pairs.add(new String[]{campContent, campReply});
 
-                // Flow data
-                FlowExecution exec = execByContact.get(contactId);
-                String flowStatus = "";
-                String flowMessages = "";
-                String flowResponses = "";
-                String flowPath = "";
+            // Remaining pairs from flow step history
+            FlowExecution exec = execByContact.get(contactId);
+            if (exec != null) {
+                List<FlowStepHistory> steps = flowStepHistoryRepository
+                        .findByExecutionIdOrderByCreatedAtAsc(exec.getId());
 
-                if (exec != null) {
-                    flowStatus = exec.getStatus().name();
-                    List<FlowStepHistory> steps = flowStepHistoryRepository
-                            .findByExecutionIdOrderByCreatedAtAsc(exec.getId());
+                String pendingMessage = null;
+                boolean hasWaitAfterPending = false;
 
-                    List<String> msgParts = new ArrayList<>();
-                    List<String> respParts = new ArrayList<>();
-                    List<String> pathParts = new ArrayList<>();
+                for (int si = 0; si < steps.size(); si++) {
+                    FlowStepHistory step = steps.get(si);
 
-                    for (FlowStepHistory step : steps) {
-                        pathParts.add(step.getNodeId());
-                        if (step.getAction() == FlowStepHistory.StepAction.MESSAGE_SENT && step.getMessageId() != null) {
-                            Message flowMsg = messageRepository.findById(step.getMessageId()).orElse(null);
-                            if (flowMsg != null) {
-                                msgParts.add(extractMessageContent(flowMsg));
+                    if (step.getAction() == FlowStepHistory.StepAction.MESSAGE_SENT && step.getMessageId() != null) {
+                        // A flow message was sent — start a new pair
+                        Message flowMsg = messageRepository.findById(step.getMessageId()).orElse(null);
+                        if (flowMsg != null) {
+                            pendingMessage = extractMessageContent(flowMsg);
+                            // Check if there's a WAIT_FOR_REPLY after this message
+                            // (meaning we expect a response). If not, it's a terminal message.
+                            hasWaitAfterPending = false;
+                            for (int sj = si + 1; sj < steps.size(); sj++) {
+                                String nodeType = steps.get(sj).getNodeType();
+                                if ("WAIT_FOR_REPLY".equals(nodeType)) {
+                                    hasWaitAfterPending = true;
+                                    break;
+                                }
+                                if ("END".equals(nodeType)) break;
                             }
                         }
-                        if (step.getAction() == FlowStepHistory.StepAction.RESPONSE_RECEIVED && step.getResponseData() != null) {
-                            respParts.add(extractUserResponse(step.getResponseData()));
+                    }
+                    if (step.getAction() == FlowStepHistory.StepAction.RESPONSE_RECEIVED && step.getResponseData() != null) {
+                        // User responded — complete the pair
+                        String response = extractUserResponse(step.getResponseData());
+                        if (pendingMessage != null) {
+                            pairs.add(new String[]{pendingMessage, response});
+                            pendingMessage = null;
+                        } else {
+                            // Response without a preceding flow message — fill last pair's response
+                            if (!pairs.isEmpty() && pairs.get(pairs.size() - 1)[1].isEmpty()) {
+                                pairs.get(pairs.size() - 1)[1] = response;
+                            }
                         }
                     }
-                    flowMessages = String.join(" | ", msgParts);
-                    flowResponses = String.join(" | ", respParts);
-                    flowPath = String.join(" → ", pathParts);
                 }
 
-                sb.append(escapeCsv(phone)).append(',')
-                  .append(escapeCsv(campMsg)).append(',')
-                  .append(escapeCsv(campStatus)).append(',')
-                  .append(escapeCsv(campResponse)).append(',')
-                  .append(escapeCsv(flowStatus)).append(',')
-                  .append(escapeCsv(flowMessages)).append(',')
-                  .append(escapeCsv(flowResponses)).append(',')
-                  .append(escapeCsv(flowPath)).append('\n');
+                // Only add trailing message if a WAIT_FOR_REPLY follows
+                // (i.e., we're expecting a response). Skip terminal messages like "Thanks"
+                if (pendingMessage != null && hasWaitAfterPending) {
+                    pairs.add(new String[]{pendingMessage, ""});
+                }
             }
-        } else {
-            // Simple export without flow data
-            for (Message m : campaignMessages) {
-                String phone = resolvePhone(m.getContactId());
-                String messageBody = extractMessageContent(m);
-                String msgType = m.getMessageType() != null ? m.getMessageType().name() : "";
-                String status = m.getStatus() != null ? m.getStatus().name() : "";
-                String userResponse = extractUserResponse(m.getResponseJson());
 
-                sb.append(escapeCsv(phone)).append(',')
-                  .append(escapeCsv(messageBody)).append(',')
-                  .append(escapeCsv(msgType)).append(',')
-                  .append(escapeCsv(status)).append(',')
-                  .append(escapeCsv(userResponse)).append('\n');
+            maxPairs = Math.max(maxPairs, pairs.size());
+            conversations.add(new ContactConversation(phone, pairs));
+        }
+
+        // Build CSV
+        StringBuilder sb = new StringBuilder();
+
+        // Header: phone, message_1, response_1, message_2, response_2, ...
+        sb.append("phone");
+        for (int i = 1; i <= maxPairs; i++) {
+            sb.append(",message_").append(i).append(",response_").append(i);
+        }
+        sb.append('\n');
+
+        // Rows
+        for (ContactConversation conv : conversations) {
+            sb.append(escapeCsv(conv.phone));
+            for (int i = 0; i < maxPairs; i++) {
+                if (i < conv.pairs.size()) {
+                    sb.append(',').append(escapeCsv(conv.pairs.get(i)[0]));
+                    sb.append(',').append(escapeCsv(conv.pairs.get(i)[1]));
+                } else {
+                    sb.append(",\"\"").append(",\"\"");
+                }
             }
+            sb.append('\n');
+        }
+
+        log.info("CAMPAIGN_EXPORT_FLOW_CSV campaignId={} contacts={} maxPairs={}",
+                conversations.size() > 0 ? conversations.get(0).phone : "none",
+                conversations.size(), maxPairs);
+
+        return sb.toString();
+    }
+
+    /**
+     * Simple campaign export (no flow): one row per message.
+     */
+    private String exportSimpleCampaignCsv(List<Message> campaignMessages) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("phone,message,message_type,status,user_response\n");
+
+        for (Message m : campaignMessages) {
+            String phone = resolvePhone(m.getContactId());
+            String messageBody = extractMessageContent(m);
+            String msgType = m.getMessageType() != null ? m.getMessageType().name() : "";
+            String status = m.getStatus() != null ? m.getStatus().name() : "";
+            String userResponse = extractUserResponse(m.getResponseJson());
+
+            sb.append(escapeCsv(phone)).append(',')
+              .append(escapeCsv(messageBody)).append(',')
+              .append(escapeCsv(msgType)).append(',')
+              .append(escapeCsv(status)).append(',')
+              .append(escapeCsv(userResponse)).append('\n');
         }
 
         return sb.toString();
     }
+
+    private record ContactConversation(String phone, List<String[]> pairs) {}
 
     // ═══════════════════════════════════════════════════════════════
     //  MESSAGE CONTENT RESOLVER — handles all normalized payload types
@@ -277,22 +347,17 @@ public class CampaignService {
                 return root.path("body").asText("");
             }
 
-            // TEMPLATE: { "type":"template", "body":"...", "variables":{...}, "templateName":"..." }
+            // TEMPLATE: { "type":"template", "body":"<contentJson>", "variables":{...}, "templateName":"..." }
             if ("template".equals(type) || messageType == Message.MessageType.TEMPLATE) {
-                String templateName = root.path("templateName").asText("");
-                String body = root.path("body").asText("");
+                String bodyRaw = root.path("body").asText("");
                 JsonNode vars = root.path("variables");
-                if (!body.isEmpty() && vars.isObject()) {
-                    var it = vars.fields();
-                    while (it.hasNext()) {
-                        var entry = it.next();
-                        body = body.replace("{{" + entry.getKey() + "}}", entry.getValue().asText(""));
-                    }
+
+                // body may be a JSON components array — parse it to extract BODY text
+                String resolvedBody = resolveTemplateBody(bodyRaw, vars);
+                if (!resolvedBody.isEmpty()) {
+                    return resolvedBody;
                 }
-                if (!body.isEmpty()) {
-                    return templateName.isEmpty() ? body : "[" + templateName + "] " + body;
-                }
-                return templateName.isEmpty() ? "Template message" : "[" + templateName + "]";
+                return "Template message";
             }
 
             // INTERACTIVE: { "type":"interactive", "interactive":{"type":"button","body":{"text":"..."}} }
@@ -337,15 +402,7 @@ public class CampaignService {
             // Fallback: try flat body field (old format)
             String body = root.path("body").asText("");
             if (!body.isEmpty()) {
-                JsonNode vars = root.path("variables");
-                if (vars.isObject()) {
-                    var it = vars.fields();
-                    while (it.hasNext()) {
-                        var entry = it.next();
-                        body = body.replace("{{" + entry.getKey() + "}}", entry.getValue().asText(""));
-                    }
-                }
-                return body;
+                return resolveTemplateBody(body, root.path("variables"));
             }
 
             return "";
@@ -431,6 +488,53 @@ public class CampaignService {
     // ═══════════════════════════════════════════════════════════════
     //  HELPERS
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Resolve template body text from contentJson.
+     * contentJson can be:
+     *   1. A JSON array of components: [{"type":"BODY","text":"Hello {{1}}"},{"type":"FOOTER",...}]
+     *   2. Plain text with {{var}} placeholders: "Hello {{name}}"
+     * Variables are substituted from the vars JsonNode.
+     */
+    private String resolveTemplateBody(String bodyRaw, JsonNode vars) {
+        if (bodyRaw == null || bodyRaw.isEmpty()) return "";
+
+        String bodyText = "";
+
+        // Try parsing as JSON components array
+        try {
+            JsonNode parsed = objectMapper.readTree(bodyRaw);
+            if (parsed.isArray()) {
+                // Components format: [{type:"HEADER",text:".."},{type:"BODY",text:".."},{type:"FOOTER",text:".."}]
+                for (JsonNode comp : parsed) {
+                    if ("BODY".equals(comp.path("type").asText(""))) {
+                        bodyText = comp.path("text").asText("");
+                        break;
+                    }
+                }
+            } else if (parsed.isTextual()) {
+                bodyText = parsed.asText("");
+            }
+        } catch (Exception e) {
+            // Not JSON — treat as plain text
+            bodyText = bodyRaw;
+        }
+
+        if (bodyText.isEmpty()) {
+            bodyText = bodyRaw;
+        }
+
+        // Substitute variables: {{1}}, {{2}} or {{name}}, {{phone}}
+        if (vars != null && vars.isObject()) {
+            var it = vars.fields();
+            while (it.hasNext()) {
+                var entry = it.next();
+                bodyText = bodyText.replace("{{" + entry.getKey() + "}}", entry.getValue().asText(""));
+            }
+        }
+
+        return bodyText;
+    }
 
     private String resolvePhone(UUID contactId) {
         if (contactId == null) return "";
