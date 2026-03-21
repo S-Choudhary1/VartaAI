@@ -6,12 +6,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tech.vartaai.whatsappcrm.dto.ClientCreateRequest;
 import tech.vartaai.whatsappcrm.dto.ClientDto;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
+import tech.vartaai.whatsappcrm.service.AdminService;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/clients")
@@ -20,15 +23,20 @@ import java.util.UUID;
 public class ClientController {
 
     private final ClientRepository clientRepository;
+    private final AdminService adminService;
 
-    public ClientController(ClientRepository clientRepository) {
+    public ClientController(ClientRepository clientRepository, AdminService adminService) {
         this.clientRepository = clientRepository;
+        this.adminService = adminService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<List<Client>> getAllClients() {
-        return ResponseEntity.ok(clientRepository.findAll());
+    public ResponseEntity<List<ClientDto>> getAllClients() {
+        List<ClientDto> clients = clientRepository.findAll().stream()
+                .map(Client::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(clients);
     }
 
     @GetMapping("/{id}")
@@ -41,18 +49,14 @@ public class ClientController {
 
     @PostMapping
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Client> createClient(@Valid @RequestBody Client client) {
-        // Basic validation/logic could be moved to service
-        if (client.getId() == null) {
-            client.setId(UUID.randomUUID());
-        }
-        Client saved = clientRepository.save(client);
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    public ResponseEntity<ClientDto> createClient(@Valid @RequestBody ClientCreateRequest request) {
+        ClientDto created = adminService.createClientWithAdmin(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<Client> updateClient(@PathVariable UUID id, @Valid @RequestBody Client clientDetails) {
+    public ResponseEntity<ClientDto> updateClient(@PathVariable UUID id, @Valid @RequestBody Client clientDetails) {
         return clientRepository.findById(id).map(client -> {
             client.setName(clientDetails.getName());
             client.setPhoneNumberId(clientDetails.getPhoneNumberId());
@@ -61,7 +65,7 @@ public class ClientController {
             if (clientDetails.getAccessToken() != null && !clientDetails.getAccessToken().isEmpty()) {
                 client.setAccessToken(clientDetails.getAccessToken());
             }
-            return ResponseEntity.ok(clientRepository.save(client));
+            return ResponseEntity.ok(clientRepository.save(client).toDto());
         }).orElse(ResponseEntity.notFound().build());
     }
 

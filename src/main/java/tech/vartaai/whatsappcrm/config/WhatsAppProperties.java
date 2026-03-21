@@ -10,6 +10,7 @@ public class WhatsAppProperties {
     private String phoneNumberId;
     private String accessToken;
     private String appSecret;
+    private String appId;
 
     public String getApiBaseUrl() { return apiBaseUrl; }
     public void setApiBaseUrl(String apiBaseUrl) { this.apiBaseUrl = apiBaseUrl; }
@@ -19,6 +20,8 @@ public class WhatsAppProperties {
     public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
     public String getAppSecret() { return appSecret; }
     public void setAppSecret(String appSecret) { this.appSecret = appSecret; }
+    public String getAppId() { return appId; }
+    public void setAppId(String appId) { this.appId = appId; }
 }
 
 

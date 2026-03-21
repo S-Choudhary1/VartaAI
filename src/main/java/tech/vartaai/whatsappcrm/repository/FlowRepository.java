@@ -21,4 +21,6 @@ public interface FlowRepository extends JpaRepository<Flow, UUID> {
 
     List<Flow> findByClient_IdAndStatusAndTriggerType(
             UUID clientId, Flow.FlowStatus status, Flow.TriggerType triggerType);
+
+    long countByStatus(Flow.FlowStatus status);
 }
