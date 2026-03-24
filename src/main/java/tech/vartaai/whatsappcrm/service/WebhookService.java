@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tech.vartaai.whatsappcrm.entity.AccountAlert;
+import tech.vartaai.whatsappcrm.entity.AccountAlert.AlertCategory;
+import tech.vartaai.whatsappcrm.entity.AccountAlert.Severity;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.entity.Contact;
 import tech.vartaai.whatsappcrm.entity.Message;
@@ -22,6 +25,7 @@ import static tech.vartaai.whatsappcrm.util.StringUtils.firstNonBlank;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @Slf4j
@@ -34,6 +38,10 @@ public class WebhookService {
     private final MessageRepository messageRepository;
     private final TemplateRepository templateRepository;
     private final FlowEngineService flowEngineService;
+    private final AccountAlertService alertService;
+
+    /** Statuses on messages field that indicate errors worth alerting on */
+    private static final Set<String> ERROR_STATUSES = Set.of("failed");
 
     public WebhookService(WebhookEventRepository webhookEventRepository,
                           ObjectMapper objectMapper,
@@ -41,7 +49,8 @@ public class WebhookService {
                           ContactRepository contactRepository,
                           MessageRepository messageRepository,
                           TemplateRepository templateRepository,
-                          FlowEngineService flowEngineService) {
+                          FlowEngineService flowEngineService,
+                          AccountAlertService alertService) {
         this.webhookEventRepository = webhookEventRepository;
         this.objectMapper = objectMapper;
         this.clientRepository = clientRepository;
@@ -49,6 +58,7 @@ public class WebhookService {
         this.messageRepository = messageRepository;
         this.templateRepository = templateRepository;
         this.flowEngineService = flowEngineService;
+        this.alertService = alertService;
     }
 
     @Transactional
@@ -95,7 +105,10 @@ public class WebhookService {
                             handleIncomingMessages(value, client);
                         }
                         if (value.has("statuses")) {
-                            handleStatusReceipts(value);
+                            handleStatusReceipts(value, client);
+                        }
+                        if (value.has("errors")) {
+                            handleMessageErrors(value, client);
                         }
                         break;
                     case "message_template_status_update":
@@ -107,14 +120,257 @@ public class WebhookService {
                     case "message_template_components_update":
                         handleTemplateComponentsUpdate(value, client);
                         break;
+
+                    // ──── Account-level events (new) ────
+                    case "account_update":
+                        handleAccountUpdate(value, client, field);
+                        break;
+                    case "account_review_update":
+                        handleAccountReviewUpdate(value, client, field);
+                        break;
+                    case "phone_number_quality_update":
+                        handlePhoneQualityUpdate(value, client, field);
+                        break;
+                    case "phone_number_name_update":
+                        handlePhoneNameUpdate(value, client, field);
+                        break;
+                    case "security":
+                        handleSecurityEvent(value, client, field);
+                        break;
+                    case "flows":
+                        handleFlowsEvent(value, client, field);
+                        break;
+                    case "template_category_update":
+                        handleTemplateCategoryUpdate(value, client, field);
+                        break;
+
                     default:
-                        // Persisted via persistEvent already. Keep unknown fields non-fatal.
-                        log.info("WA_SKIP unsupported field={}", field);
+                        // Persisted via persistEvent already. Log and create INFO alert.
+                        log.info("WA_UNHANDLED_FIELD field={}", field);
+                        alertService.createAlert(client, AlertCategory.UNKNOWN, Severity.INFO,
+                                "Unhandled webhook field: " + field,
+                                "Received webhook event for unhandled field: " + field,
+                                field, value);
                         break;
                 }
             }
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ACCOUNT-LEVEL EVENT HANDLERS
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Handles account_update: WABA banned, flagged, restricted, reinstated.
+     * Meta sends: { "event": "DISABLED"|"FLAGGED"|"UNFLAGGED"|"REINSTATED", "ban_info": {...} }
+     */
+    private void handleAccountUpdate(JsonNode value, Client client, String field) {
+        String event = firstNonBlank(
+                value.path("event").asText(null),
+                value.path("ban_info").path("waba_ban_state").asText(null)
+        );
+
+        Severity severity;
+        String title;
+
+        if (event == null) {
+            event = "UNKNOWN";
+        }
+
+        switch (event.toUpperCase()) {
+            case "DISABLED":
+                severity = Severity.CRITICAL;
+                title = "WhatsApp Business Account DISABLED";
+                break;
+            case "FLAGGED":
+                severity = Severity.WARNING;
+                title = "WhatsApp Business Account FLAGGED";
+                // Also update client status
+                client.setPhoneStatus("FLAGGED");
+                clientRepository.save(client);
+                break;
+            case "UNFLAGGED":
+            case "REINSTATED":
+                severity = Severity.INFO;
+                title = "WhatsApp Business Account " + event;
+                client.setPhoneStatus("CONNECTED");
+                clientRepository.save(client);
+                break;
+            default:
+                severity = Severity.WARNING;
+                title = "Account update: " + event;
+                break;
+        }
+
+        String banDate = value.path("ban_info").path("waba_ban_date").asText(null);
+        String message = "Account event: " + event;
+        if (banDate != null) {
+            message += ". Ban date: " + banDate;
+        }
+
+        alertService.createAlert(client, AlertCategory.ACCOUNT_UPDATE, severity, title, message, field, value);
+        log.info("WA_ACCOUNT_UPDATE clientId={} event={}", client.getId(), event);
+    }
+
+    /**
+     * Handles account_review_update: business verification status changes.
+     * Meta sends: { "decision": "APPROVED"|"REJECTED" }
+     */
+    private void handleAccountReviewUpdate(JsonNode value, Client client, String field) {
+        String decision = value.path("decision").asText("UNKNOWN");
+        Severity severity = "REJECTED".equalsIgnoreCase(decision) ? Severity.CRITICAL : Severity.INFO;
+        String title = "Business verification: " + decision;
+
+        alertService.createAlert(client, AlertCategory.ACCOUNT_REVIEW, severity, title,
+                "Business verification decision: " + decision, field, value);
+        log.info("WA_ACCOUNT_REVIEW clientId={} decision={}", client.getId(), decision);
+    }
+
+    /**
+     * Handles phone_number_quality_update: phone quality rating changes.
+     * Meta sends: { "display_phone_number": "...", "current_limit": "...", "event": "..." }
+     */
+    private void handlePhoneQualityUpdate(JsonNode value, Client client, String field) {
+        String event = value.path("event").asText("UNKNOWN");
+        String currentLimit = value.path("current_limit").asText(null);
+        String phone = value.path("display_phone_number").asText(null);
+
+        // Update client fields
+        if (currentLimit != null) {
+            client.setMessagingLimitTier(currentLimit);
+        }
+
+        // Determine severity based on event
+        Severity severity;
+        switch (event.toUpperCase()) {
+            case "FLAGGED":
+                severity = Severity.WARNING;
+                client.setQualityRating("YELLOW");
+                break;
+            case "RESTRICTED":
+                severity = Severity.CRITICAL;
+                client.setQualityRating("RED");
+                break;
+            case "UNFLAGGED":
+                severity = Severity.INFO;
+                client.setQualityRating("GREEN");
+                break;
+            default:
+                severity = Severity.WARNING;
+                break;
+        }
+        clientRepository.save(client);
+
+        String title = "Phone quality " + event + (phone != null ? " (" + phone + ")" : "");
+        String message = "Quality event: " + event + ". Current limit: " + (currentLimit != null ? currentLimit : "N/A");
+
+        alertService.createAlert(client, AlertCategory.PHONE_QUALITY, severity, title, message, field, value);
+        log.info("WA_PHONE_QUALITY clientId={} event={} limit={}", client.getId(), event, currentLimit);
+    }
+
+    /**
+     * Handles phone_number_name_update: display name approval/rejection.
+     * Meta sends: { "display_phone_number": "...", "decision": "APPROVED"|"REJECTED", "requested_verified_name": "..." }
+     */
+    private void handlePhoneNameUpdate(JsonNode value, Client client, String field) {
+        String decision = value.path("decision").asText("UNKNOWN");
+        String requestedName = value.path("requested_verified_name").asText(null);
+        String rejectionReason = value.path("rejection_reason").asText(null);
+
+        Severity severity = "REJECTED".equalsIgnoreCase(decision) ? Severity.WARNING : Severity.INFO;
+
+        if ("APPROVED".equalsIgnoreCase(decision) && requestedName != null) {
+            client.setVerifiedName(requestedName);
+            clientRepository.save(client);
+        }
+
+        String title = "Display name " + decision + (requestedName != null ? ": " + requestedName : "");
+        String message = "Name decision: " + decision;
+        if (rejectionReason != null) {
+            message += ". Reason: " + rejectionReason;
+        }
+
+        alertService.createAlert(client, AlertCategory.PHONE_NAME_UPDATE, severity, title, message, field, value);
+        log.info("WA_PHONE_NAME clientId={} decision={} name={}", client.getId(), decision, requestedName);
+    }
+
+    /**
+     * Handles security events (e.g., two-step verification code changes).
+     */
+    private void handleSecurityEvent(JsonNode value, Client client, String field) {
+        String event = value.path("event").asText("UNKNOWN");
+        alertService.createAlert(client, AlertCategory.SECURITY, Severity.WARNING,
+                "Security event: " + event,
+                "Security notification from Meta: " + event,
+                field, value);
+        log.info("WA_SECURITY clientId={} event={}", client.getId(), event);
+    }
+
+    /**
+     * Handles flows webhook events (WhatsApp Flows status changes).
+     */
+    private void handleFlowsEvent(JsonNode value, Client client, String field) {
+        String event = value.path("event").asText("UNKNOWN");
+        alertService.createAlert(client, AlertCategory.UNKNOWN, Severity.INFO,
+                "WhatsApp Flows event: " + event,
+                "Flows event received: " + event,
+                field, value);
+        log.info("WA_FLOWS_EVENT clientId={} event={}", client.getId(), event);
+    }
+
+    /**
+     * Handles template_category_update: Meta re-categorized a template.
+     */
+    private void handleTemplateCategoryUpdate(JsonNode value, Client client, String field) {
+        String templateName = firstNonBlank(
+                value.path("message_template_name").asText(null),
+                value.path("template_name").asText(null)
+        );
+        String previousCategory = value.path("previous_category").asText(null);
+        String newCategory = value.path("new_category").asText(null);
+
+        alertService.createAlert(client, AlertCategory.TEMPLATE_STATUS, Severity.WARNING,
+                "Template re-categorized: " + (templateName != null ? templateName : "unknown"),
+                "Template '" + templateName + "' category changed from " + previousCategory + " to " + newCategory,
+                field, value);
+        log.info("WA_TEMPLATE_CATEGORY clientId={} template={} {} -> {}",
+                client.getId(), templateName, previousCategory, newCategory);
+    }
+
+    /**
+     * Handles errors array inside messages field — Meta-level delivery errors.
+     */
+    private void handleMessageErrors(JsonNode value, Client client) {
+        JsonNode errors = value.path("errors");
+        if (!errors.isArray()) return;
+
+        for (JsonNode err : errors) {
+            String code = err.path("code").asText("0");
+            String title = err.path("title").asText("Unknown error");
+            String message = err.path("message").asText("");
+            String details = err.path("error_data").path("details").asText(null);
+
+            String alertMsg = "Error " + code + ": " + title;
+            if (!message.isBlank()) alertMsg += ". " + message;
+            if (details != null) alertMsg += ". Details: " + details;
+
+            // Rate limit errors and auth errors are critical
+            Severity severity = Severity.WARNING;
+            if ("130429".equals(code) || "131048".equals(code)) {
+                severity = Severity.CRITICAL; // Rate limited
+            } else if (code.startsWith("190")) {
+                severity = Severity.CRITICAL; // Auth errors
+            }
+
+            alertService.createAlert(client, AlertCategory.UNKNOWN, severity,
+                    "Message error: " + title, alertMsg, "messages", err);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EXISTING HANDLERS (messages, status, templates)
+    // ═══════════════════════════════════════════════════════════════
 
     private void handleIncomingMessages(JsonNode value, Client client) {
 
@@ -181,7 +437,6 @@ public class WebhookService {
                 }
             }
 
-            // ✅ idempotent check for stand‑alone incoming messages
             if (messageRepository.existsByProviderMessageId(msgId)) {
                 log.warn("WA_DUPLICATE_MESSAGE msgId={}", msgId);
                 continue;
@@ -205,7 +460,6 @@ public class WebhookService {
 
             log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
 
-            // Process flow engine for incoming messages (standalone, no context)
             log.info("FLOW_WEBHOOK_STANDALONE_TRIGGER contactId={} phone={} type={} msgId={}",
                     contact.getId(), from, type, msgId);
             try {
@@ -218,7 +472,7 @@ public class WebhookService {
         }
     }
 
-    private void handleStatusReceipts(JsonNode value) {
+    private void handleStatusReceipts(JsonNode value, Client client) {
 
         for (JsonNode status : value.get("statuses")) {
 
@@ -253,7 +507,13 @@ public class WebhookService {
 
                 case "failed":
                     msg.setStatus(Message.Status.FAILED);
-                    msg.setError(extractStatusError(status));
+                    String error = extractStatusError(status);
+                    msg.setError(error);
+                    // Create alert for failed messages
+                    alertService.createAlert(client, AlertCategory.UNKNOWN, Severity.WARNING,
+                            "Message delivery failed",
+                            "Message " + msgId + " to " + recipient + " failed: " + error,
+                            "messages", status);
                     break;
                 default:
                     msg.setStatus(Message.Status.UNKNOWN);
@@ -294,10 +554,6 @@ public class WebhookService {
     }
 
 
-    /**
-     * Build a compact JSON representation of the user's response so that
-     * downstream reporting (e.g. campaign CSV export) can easily read it.
-     */
     private String buildUserResponseJson(String type, JsonNode msg) {
         try {
             switch (type) {
@@ -406,7 +662,6 @@ public class WebhookService {
                     return objectMapper.writeValueAsString(normalized);
                 }
                 default:
-                    // Generic fallback for other message types (image, interactive, etc.)
                     Map<String, Object> fallback = new HashMap<>();
                     fallback.put("type", type);
                     fallback.put("raw", msg);
@@ -449,6 +704,22 @@ public class WebhookService {
         }
         templateRepository.save(template);
         log.info("WA_TEMPLATE_STATUS_UPDATED template={} status={}", template.getName(), nextStatus);
+
+        // Alert for rejections/disables
+        if (nextStatus != null && ("REJECTED".equalsIgnoreCase(nextStatus)
+                || "DISABLED".equalsIgnoreCase(nextStatus)
+                || "PAUSED".equalsIgnoreCase(nextStatus))) {
+            String reason = firstNonBlank(
+                    value.path("reason").asText(null),
+                    value.path("rejection_reason").asText(null)
+            );
+            alertService.createAlert(client, AlertCategory.TEMPLATE_STATUS,
+                    "REJECTED".equalsIgnoreCase(nextStatus) ? Severity.WARNING : Severity.INFO,
+                    "Template " + nextStatus + ": " + template.getName(),
+                    "Template '" + template.getName() + "' status changed to " + nextStatus
+                            + (reason != null ? ". Reason: " + reason : ""),
+                    "message_template_status_update", value);
+        }
     }
 
     private void handleTemplateQualityUpdate(JsonNode value, Client client) {
@@ -468,6 +739,15 @@ public class WebhookService {
         }
         templateRepository.save(template);
         log.info("WA_TEMPLATE_QUALITY_UPDATED template={} quality={}", template.getName(), quality);
+
+        // Alert for degraded quality
+        if ("RED".equalsIgnoreCase(quality) || "YELLOW".equalsIgnoreCase(quality)) {
+            alertService.createAlert(client, AlertCategory.TEMPLATE_STATUS,
+                    "RED".equalsIgnoreCase(quality) ? Severity.WARNING : Severity.INFO,
+                    "Template quality " + quality + ": " + template.getName(),
+                    "Template '" + template.getName() + "' quality changed to " + quality,
+                    "message_template_quality_update", value);
+        }
     }
 
     private void handleTemplateComponentsUpdate(JsonNode value, Client client) {
@@ -526,6 +806,3 @@ public class WebhookService {
     }
 
 }
-
-
-

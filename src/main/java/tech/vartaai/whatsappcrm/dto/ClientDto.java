@@ -15,5 +15,19 @@ public class ClientDto {
     private String name;
     private String phoneNumberId;
     private String wabaId;
+    private String language;
+    private String onboardingStatus;
+    private String businessName;
+    private String verifiedName;
+    private String qualityRating;
+    private String messagingLimitTier;
+    private String phoneStatus;
+    private String businessVerificationStatus;
+    private String accountReviewStatus;
+    private String billingStatus;
+    private String provisioningError;
+    private OffsetDateTime tokenExpiresAt;
+    private OffsetDateTime lastSyncedAt;
     private OffsetDateTime createdAt;
+    private long unresolvedAlertCount;
 }

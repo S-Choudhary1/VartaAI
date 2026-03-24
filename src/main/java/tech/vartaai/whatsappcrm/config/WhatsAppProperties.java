@@ -11,6 +11,8 @@ public class WhatsAppProperties {
     private String accessToken;
     private String appSecret;
     private String appId;
+    private String creditLineId;
+    private String businessId;
 
     public String getApiBaseUrl() { return apiBaseUrl; }
     public void setApiBaseUrl(String apiBaseUrl) { this.apiBaseUrl = apiBaseUrl; }
@@ -22,6 +24,10 @@ public class WhatsAppProperties {
     public void setAppSecret(String appSecret) { this.appSecret = appSecret; }
     public String getAppId() { return appId; }
     public void setAppId(String appId) { this.appId = appId; }
+    public String getCreditLineId() { return creditLineId; }
+    public void setCreditLineId(String creditLineId) { this.creditLineId = creditLineId; }
+    public String getBusinessId() { return businessId; }
+    public void setBusinessId(String businessId) { this.businessId = businessId; }
 }
 
 

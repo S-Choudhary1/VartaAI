@@ -34,4 +34,10 @@ public class WhatsAppOnboardController {
             @RequestHeader("X-Client-Id") UUID clientId) {
         return ResponseEntity.ok(whatsAppOnboardService.getStatus(clientId));
     }
+
+    @PostMapping("/retry-provisioning")
+    public ResponseEntity<WhatsAppOnboardResponse> retryProvisioning(
+            @RequestHeader("X-Client-Id") UUID clientId) {
+        return ResponseEntity.ok(whatsAppOnboardService.retryProvisioning(clientId));
+    }
 }

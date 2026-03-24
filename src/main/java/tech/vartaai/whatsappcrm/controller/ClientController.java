@@ -10,6 +10,7 @@ import tech.vartaai.whatsappcrm.dto.ClientCreateRequest;
 import tech.vartaai.whatsappcrm.dto.ClientDto;
 import tech.vartaai.whatsappcrm.entity.Client;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
+import tech.vartaai.whatsappcrm.service.AccountAlertService;
 import tech.vartaai.whatsappcrm.service.AdminService;
 
 import java.util.List;
@@ -24,17 +25,24 @@ public class ClientController {
 
     private final ClientRepository clientRepository;
     private final AdminService adminService;
+    private final AccountAlertService alertService;
 
-    public ClientController(ClientRepository clientRepository, AdminService adminService) {
+    public ClientController(ClientRepository clientRepository, AdminService adminService,
+                            AccountAlertService alertService) {
         this.clientRepository = clientRepository;
         this.adminService = adminService;
+        this.alertService = alertService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<List<ClientDto>> getAllClients() {
         List<ClientDto> clients = clientRepository.findAll().stream()
-                .map(Client::toDto)
+                .map(c -> {
+                    ClientDto dto = c.toDto();
+                    dto.setUnresolvedAlertCount(alertService.getUnresolvedCount(c.getId()));
+                    return dto;
+                })
                 .collect(Collectors.toList());
         return ResponseEntity.ok(clients);
     }
