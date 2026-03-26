@@ -12,7 +12,6 @@ import tech.vartaai.whatsappcrm.entity.Client.OnboardingStatus;
 import tech.vartaai.whatsappcrm.repository.ClientRepository;
 
 import java.time.OffsetDateTime;
-import java.util.Map;
 
 @Service
 @Slf4j
@@ -41,10 +40,6 @@ public class ProvisioningService {
     //  PROVISIONING PIPELINE
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Runs the full post-onboard provisioning pipeline.
-     * Each step is wrapped in try-catch so partial progress is saved.
-     */
     public Client provisionClient(Client client) {
         log.info("PROVISION_START clientId={} currentStatus={}", client.getId(), client.getOnboardingStatus());
         client.setProvisioningError(null);
@@ -58,7 +53,6 @@ public class ProvisioningService {
                 log.info("PROVISION_TOKEN_EXCHANGED clientId={}", client.getId());
             } catch (Exception e) {
                 log.warn("PROVISION_TOKEN_EXCHANGE_FAILED clientId={} err={}", client.getId(), e.getMessage());
-                // Non-fatal: short-lived token still works, continue provisioning
             }
         }
 
@@ -89,19 +83,17 @@ public class ProvisioningService {
             }
         }
 
-        // Step 4: Attach billing credit line (if configured)
-        try {
-            attachBillingCreditLine(client);
-        } catch (Exception e) {
-            log.warn("PROVISION_BILLING_SKIPPED clientId={} err={}", client.getId(), e.getMessage());
-            // Non-fatal: billing can be attached later
-        }
-
-        // Step 5: Check business verification status
+        // Step 4: Check business verification + billing/payment status
         try {
             checkBusinessVerification(client);
         } catch (Exception e) {
             log.warn("PROVISION_VERIFICATION_CHECK_SKIPPED clientId={} err={}", client.getId(), e.getMessage());
+        }
+
+        try {
+            checkBillingStatus(client);
+        } catch (Exception e) {
+            log.warn("PROVISION_BILLING_CHECK_SKIPPED clientId={} err={}", client.getId(), e.getMessage());
         }
 
         // All steps complete
@@ -116,10 +108,6 @@ public class ProvisioningService {
     //  TOKEN MANAGEMENT
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Exchange short-lived user token for long-lived token (60 days).
-     * Meta endpoint: GET /oauth/access_token?grant_type=fb_exchange_token&...
-     */
     public void exchangeLongLivedToken(Client client) {
         String shortLivedToken = client.getAccessToken();
         if (shortLivedToken == null || shortLivedToken.isBlank()) {
@@ -142,12 +130,9 @@ public class ProvisioningService {
             throw new RuntimeException("Long-lived token exchange returned no token");
         }
 
-        String longLivedToken = response.get("access_token").asText();
-        client.setAccessToken(longLivedToken);
-
+        client.setAccessToken(response.get("access_token").asText());
         if (response.has("expires_in")) {
-            long expiresInSeconds = response.get("expires_in").asLong();
-            client.setTokenExpiresAt(OffsetDateTime.now().plusSeconds(expiresInSeconds));
+            client.setTokenExpiresAt(OffsetDateTime.now().plusSeconds(response.get("expires_in").asLong()));
         }
 
         log.info("TOKEN_EXCHANGED clientId={} expiresAt={}", client.getId(), client.getTokenExpiresAt());
@@ -157,10 +142,6 @@ public class ProvisioningService {
     //  WEBHOOK SUBSCRIPTION
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Subscribe this app to receive webhooks for the WABA.
-     * Meta endpoint: POST /{WABA-ID}/subscribed_apps
-     */
     public void subscribeWebhook(Client client) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();
@@ -178,18 +159,14 @@ public class ProvisioningService {
 
         boolean success = response != null && response.path("success").asBoolean(false);
         if (!success) {
-            log.warn("WEBHOOK_SUBSCRIBE_RESPONSE clientId={} response={}", client.getId(), response);
             throw new RuntimeException("Webhook subscription returned success=false");
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  DATA SYNC (Phase 2)
+    //  DATA SYNC
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Fetch WABA details and store business name + verification status.
-     */
     public void syncWabaDetails(Client client) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();
@@ -225,9 +202,6 @@ public class ProvisioningService {
         }
     }
 
-    /**
-     * Fetch phone number details: verified name, quality rating, messaging limits, status.
-     */
     public void syncPhoneDetails(Client client) {
         String phoneNumberId = client.getPhoneNumberId();
         String accessToken = client.getAccessToken();
@@ -253,15 +227,22 @@ public class ProvisioningService {
             }
             client.setMessagingLimitTier(limitTier);
 
-            log.info("PHONE_DETAILS_SYNCED clientId={} verifiedName={} quality={} limit={} status={}",
+            // account_mode: SANDBOX means no payment method, LIVE means payment is set up
+            String accountMode = response.path("account_mode").asText(null);
+            if (accountMode != null) {
+                if ("LIVE".equalsIgnoreCase(accountMode)) {
+                    client.setBillingStatus("ACTIVE");
+                } else if ("SANDBOX".equalsIgnoreCase(accountMode)) {
+                    client.setBillingStatus("NO_PAYMENT_METHOD");
+                }
+            }
+
+            log.info("PHONE_DETAILS_SYNCED clientId={} verifiedName={} quality={} limit={} status={} accountMode={}",
                     client.getId(), client.getVerifiedName(), client.getQualityRating(),
-                    client.getMessagingLimitTier(), client.getPhoneStatus());
+                    client.getMessagingLimitTier(), client.getPhoneStatus(), accountMode);
         }
     }
 
-    /**
-     * Fetch WhatsApp business profile (about, address, etc.).
-     */
     public void syncBusinessProfile(Client client) {
         String phoneNumberId = client.getPhoneNumberId();
         String accessToken = client.getAccessToken();
@@ -283,78 +264,72 @@ public class ProvisioningService {
                 log.info("BUSINESS_PROFILE_SYNCED clientId={}", client.getId());
             }
         } catch (Exception e) {
-            log.warn("BUSINESS_PROFILE_FETCH_FAILED clientId={} status={}", client.getId(), e.getMessage());
-            // Non-fatal
+            log.warn("BUSINESS_PROFILE_FETCH_FAILED clientId={} err={}", client.getId(), e.getMessage());
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  BILLING (Phase 3)
+    //  BILLING / PAYMENT STATUS CHECK
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Attach credit line to WABA for billing.
-     * Meta endpoint: POST /{CREDIT-LINE-ID}/whatsapp_credit_sharing_and_attach
-     * Only runs if credit line ID is configured.
+     * Check if the WABA has a payment method configured.
+     * Meta doesn't expose a direct "has payment method" API.
+     * We infer from account_mode on the phone number:
+     *   - LIVE = payment method is set, conversations are billable
+     *   - SANDBOX = no payment method, limited to test conversations
+     *
+     * This is already done in syncPhoneDetails via account_mode field.
+     * This method provides a standalone check by fetching the WABA's
+     * account_mode if it wasn't populated during phone sync.
      */
-    public void attachBillingCreditLine(Client client) {
-        String creditLineId = whatsAppProperties.getCreditLineId();
-        if (creditLineId == null || creditLineId.isBlank()) {
-            log.debug("BILLING_SKIP no credit_line_id configured");
+    public void checkBillingStatus(Client client) {
+        // If already determined from phone sync, skip
+        if (client.getBillingStatus() != null
+                && ("ACTIVE".equals(client.getBillingStatus()) || "NO_PAYMENT_METHOD".equals(client.getBillingStatus()))) {
             return;
         }
 
-        String wabaId = client.getWabaId();
+        String phoneNumberId = client.getPhoneNumberId();
         String accessToken = client.getAccessToken();
-
-        if (wabaId == null || wabaId.isBlank()) {
-            log.warn("BILLING_SKIP no WABA ID for clientId={}", client.getId());
-            return;
-        }
+        if (phoneNumberId == null || accessToken == null) return;
 
         try {
-            JsonNode response = callWithRetry(() -> webClient.post()
-                    .uri("/" + creditLineId + "/whatsapp_credit_sharing_and_attach")
+            JsonNode response = callWithRetry(() -> webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/" + phoneNumberId)
+                            .queryParam("fields", "account_mode")
+                            .build())
                     .header("Authorization", "Bearer " + accessToken)
-                    .bodyValue(Map.of("waba_id", wabaId, "waba_currency", "USD"))
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .block());
 
-            String allocationId = response != null ? response.path("allocation_config_id").asText(null) : null;
-            if (allocationId != null) {
-                client.setBillingStatus("ATTACHED");
-                log.info("BILLING_ATTACHED clientId={} allocationId={}", client.getId(), allocationId);
-            } else {
-                client.setBillingStatus("PENDING");
-                log.info("BILLING_RESPONSE clientId={} response={}", client.getId(), response);
+            if (response != null) {
+                String accountMode = response.path("account_mode").asText(null);
+                if ("LIVE".equalsIgnoreCase(accountMode)) {
+                    client.setBillingStatus("ACTIVE");
+                } else if ("SANDBOX".equalsIgnoreCase(accountMode)) {
+                    client.setBillingStatus("NO_PAYMENT_METHOD");
+                } else {
+                    client.setBillingStatus("UNKNOWN");
+                }
+                clientRepository.save(client);
+                log.info("BILLING_STATUS_CHECK clientId={} accountMode={} billingStatus={}",
+                        client.getId(), accountMode, client.getBillingStatus());
             }
-        } catch (WebClientResponseException e) {
-            // 400 with "already shared" is fine
-            if (e.getResponseBodyAsString().contains("already")) {
-                client.setBillingStatus("ATTACHED");
-                log.info("BILLING_ALREADY_ATTACHED clientId={}", client.getId());
-            } else {
-                client.setBillingStatus("FAILED");
-                log.warn("BILLING_ATTACH_FAILED clientId={} status={} body={}",
-                        client.getId(), e.getStatusCode(), e.getResponseBodyAsString());
-                throw new RuntimeException("Billing attachment failed", e);
-            }
+        } catch (Exception e) {
+            log.warn("BILLING_STATUS_CHECK_FAILED clientId={} err={}", client.getId(), e.getMessage());
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  BUSINESS VERIFICATION (Phase 3)
+    //  BUSINESS VERIFICATION
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Check and store business verification status.
-     * Uses data already fetched in syncWabaDetails; this method can also be called standalone.
-     */
     public void checkBusinessVerification(Client client) {
         String wabaId = client.getWabaId();
         String accessToken = client.getAccessToken();
-
         if (wabaId == null || accessToken == null) return;
 
         try {
@@ -369,15 +344,11 @@ public class ProvisioningService {
                     .block());
 
             if (response != null) {
-                String verificationStatus = response.path("business_verification_status").asText(null);
-                String reviewStatus = response.path("account_review_status").asText(null);
-
-                client.setBusinessVerificationStatus(verificationStatus);
-                client.setAccountReviewStatus(reviewStatus);
+                client.setBusinessVerificationStatus(response.path("business_verification_status").asText(null));
+                client.setAccountReviewStatus(response.path("account_review_status").asText(null));
                 clientRepository.save(client);
-
                 log.info("VERIFICATION_CHECK clientId={} verification={} review={}",
-                        client.getId(), verificationStatus, reviewStatus);
+                        client.getId(), client.getBusinessVerificationStatus(), client.getAccountReviewStatus());
             }
         } catch (Exception e) {
             log.warn("VERIFICATION_CHECK_FAILED clientId={} err={}", client.getId(), e.getMessage());
@@ -392,6 +363,7 @@ public class ProvisioningService {
             syncPhoneDetails(client);
             syncBusinessProfile(client);
             checkBusinessVerification(client);
+            checkBillingStatus(client);
             client.setLastSyncedAt(OffsetDateTime.now());
             clientRepository.save(client);
             log.info("CLIENT_DATA_REFRESHED clientId={}", client.getId());
@@ -401,13 +373,9 @@ public class ProvisioningService {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  RETRY WITH EXPONENTIAL BACKOFF (Phase 3)
+    //  RETRY WITH EXPONENTIAL BACKOFF
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Execute a Meta API call with exponential backoff retry.
-     * Retries on 429 (rate limit), 500, 502, 503, 504 errors.
-     */
     private <T> T callWithRetry(java.util.function.Supplier<T> apiCall) {
         int attempt = 0;
         long backoffMs = INITIAL_BACKOFF_MS;
@@ -418,29 +386,14 @@ public class ProvisioningService {
             } catch (WebClientResponseException e) {
                 int status = e.getStatusCode().value();
                 boolean retryable = (status == 429 || status >= 500);
-
-                if (!retryable || attempt >= MAX_RETRIES) {
-                    throw e;
-                }
-
+                if (!retryable || attempt >= MAX_RETRIES) throw e;
                 attempt++;
                 log.warn("META_API_RETRY attempt={}/{} status={} backoff={}ms", attempt, MAX_RETRIES, status, backoffMs);
-
-                try {
-                    Thread.sleep(backoffMs);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw e;
-                }
-
-                backoffMs *= 2; // exponential backoff
+                try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+                backoffMs *= 2;
             }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  HELPERS
-    // ═══════════════════════════════════════════════════════════════
 
     private Client failProvisioning(Client client, String error) {
         log.error("PROVISION_FAILED clientId={} err={}", client.getId(), error);
@@ -451,9 +404,7 @@ public class ProvisioningService {
     }
 
     private boolean statusBefore(OnboardingStatus current, OnboardingStatus target) {
-        if (current == null || current == OnboardingStatus.NOT_STARTED || current == OnboardingStatus.FAILED) {
-            return true;
-        }
+        if (current == null || current == OnboardingStatus.NOT_STARTED || current == OnboardingStatus.FAILED) return true;
         return current.ordinal() < target.ordinal();
     }
 }
