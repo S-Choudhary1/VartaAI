@@ -6,10 +6,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import tech.vartaai.whatsappcrm.dto.AccountAlertDto;
 import tech.vartaai.whatsappcrm.dto.AdminStatsResponse;
+import tech.vartaai.whatsappcrm.dto.ClientDto;
 import tech.vartaai.whatsappcrm.dto.UserDto;
 import tech.vartaai.whatsappcrm.entity.Campaign;
+import tech.vartaai.whatsappcrm.entity.Client;
+import tech.vartaai.whatsappcrm.repository.ClientRepository;
 import tech.vartaai.whatsappcrm.service.AccountAlertService;
 import tech.vartaai.whatsappcrm.service.AdminService;
+import tech.vartaai.whatsappcrm.service.ProvisioningService;
 
 import java.util.List;
 import java.util.UUID;
@@ -23,10 +27,15 @@ public class AdminController {
 
     private final AdminService adminService;
     private final AccountAlertService alertService;
+    private final ProvisioningService provisioningService;
+    private final ClientRepository clientRepository;
 
-    public AdminController(AdminService adminService, AccountAlertService alertService) {
+    public AdminController(AdminService adminService, AccountAlertService alertService,
+                           ProvisioningService provisioningService, ClientRepository clientRepository) {
         this.adminService = adminService;
         this.alertService = alertService;
+        this.provisioningService = provisioningService;
+        this.clientRepository = clientRepository;
     }
 
     @GetMapping("/stats")
@@ -47,5 +56,27 @@ public class AdminController {
     @GetMapping("/clients/{clientId}/alerts")
     public ResponseEntity<List<AccountAlertDto>> getClientAlerts(@PathVariable UUID clientId) {
         return ResponseEntity.ok(alertService.getUnresolvedAlerts(clientId));
+    }
+
+    @PostMapping("/clients/{clientId}/refresh")
+    public ResponseEntity<ClientDto> refreshClientData(@PathVariable UUID clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found: " + clientId));
+        provisioningService.refreshClientData(client);
+        // Re-read after refresh
+        client = clientRepository.findById(clientId).orElseThrow();
+        ClientDto dto = client.toDto();
+        dto.setUnresolvedAlertCount(alertService.getUnresolvedCount(clientId));
+        return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/clients/{clientId}/retry-provisioning")
+    public ResponseEntity<ClientDto> retryClientProvisioning(@PathVariable UUID clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found: " + clientId));
+        client = provisioningService.provisionClient(client);
+        ClientDto dto = client.toDto();
+        dto.setUnresolvedAlertCount(alertService.getUnresolvedCount(clientId));
+        return ResponseEntity.ok(dto);
     }
 }
