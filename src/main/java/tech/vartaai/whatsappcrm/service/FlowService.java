@@ -168,24 +168,20 @@ public class FlowService {
         flowRepository.findByIdAndClient_Id(flowId, clientId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "FLOW_NOT_FOUND", "Flow not found."));
 
-        long total = flowExecutionRepository.countByFlow_IdAndClientId(flowId, clientId);
-        long completed = flowExecutionRepository.countByFlow_IdAndClientIdAndStatus(
-                flowId, clientId, FlowExecution.ExecutionStatus.COMPLETED);
-        long active = flowExecutionRepository.countByFlow_IdAndClientIdAndStatus(
-                flowId, clientId, FlowExecution.ExecutionStatus.ACTIVE);
-        long waiting = flowExecutionRepository.countByFlow_IdAndClientIdAndStatus(
-                flowId, clientId, FlowExecution.ExecutionStatus.WAITING);
-        long failed = flowExecutionRepository.countByFlow_IdAndClientIdAndStatus(
-                flowId, clientId, FlowExecution.ExecutionStatus.FAILED);
-        long timedOut = flowExecutionRepository.countByFlow_IdAndClientIdAndStatus(
-                flowId, clientId, FlowExecution.ExecutionStatus.TIMED_OUT);
+        List<Object[]> rows = flowExecutionRepository.countGroupedByStatus(flowId, clientId);
 
-        List<Object[]> nodeCounts = flowExecutionRepository.countByCurrentNodeForFlow(flowId, clientId);
-        Map<String, Long> contactsPerNode = new LinkedHashMap<>();
-        for (Object[] row : nodeCounts) {
-            String nodeId = row[0] != null ? row[0].toString() : "unknown";
-            Long count = ((Number) row[1]).longValue();
-            contactsPerNode.put(nodeId, count);
+        long completed = 0, active = 0, waiting = 0, failed = 0, timedOut = 0, total = 0;
+        for (Object[] row : rows) {
+            FlowExecution.ExecutionStatus status = (FlowExecution.ExecutionStatus) row[0];
+            long count = ((Number) row[1]).longValue();
+            total += count;
+            switch (status) {
+                case COMPLETED -> completed = count;
+                case ACTIVE    -> active = count;
+                case WAITING   -> waiting = count;
+                case FAILED    -> failed = count;
+                case TIMED_OUT -> timedOut = count;
+            }
         }
 
         Map<String, Object> analytics = new LinkedHashMap<>();
@@ -195,7 +191,6 @@ public class FlowService {
         analytics.put("waiting", waiting);
         analytics.put("failed", failed);
         analytics.put("timedOut", timedOut);
-        analytics.put("contactsPerNode", contactsPerNode);
         return analytics;
     }
 

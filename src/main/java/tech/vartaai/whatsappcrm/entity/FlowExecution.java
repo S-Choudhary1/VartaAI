@@ -32,6 +32,9 @@ public class FlowExecution {
     @Column(name = "campaign_id")
     private UUID campaignId;
 
+    @Column(name = "parent_execution_id")
+    private UUID parentExecutionId;
+
     @Column(name = "current_node_id", length = 255)
     private String currentNodeId;
 

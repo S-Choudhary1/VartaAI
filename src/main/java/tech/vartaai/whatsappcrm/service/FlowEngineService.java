@@ -69,23 +69,62 @@ public class FlowEngineService {
                     activeExecs.stream().map(e -> e.getId() + ":" + e.getStatus()).toList());
 
             if (!activeExecs.isEmpty()) {
-                activeExecs.sort((a, b) -> {
-                    if (a.getStatus() == FlowExecution.ExecutionStatus.WAITING) return -1;
-                    if (b.getStatus() == FlowExecution.ExecutionStatus.WAITING) return 1;
-                    return 0;
-                });
+                // Separate parent flows from sub-flows
+                FlowExecution parentWaiting = null;
+                FlowExecution subFlowWaiting = null;
 
-                FlowExecution exec = activeExecs.get(0);
+                for (FlowExecution e : activeExecs) {
+                    if (e.getStatus() == FlowExecution.ExecutionStatus.WAITING) {
+                        if (e.getParentExecutionId() != null) {
+                            subFlowWaiting = e;
+                        } else {
+                            parentWaiting = e;
+                        }
+                    }
+                }
 
-                if (exec.getStatus() == FlowExecution.ExecutionStatus.WAITING) {
-                    log.info("FLOW_RESUME_WAITING execId={} flowId={} contactId={} currentNode={}",
-                            exec.getId(), exec.getFlow().getId(), contactId, exec.getCurrentNodeId());
-                    handleWaitingExecution(exec, contact, client, responseJson);
+                // If parent is waiting at a CONDITION node, try matching non-DEFAULT conditions first
+                if (parentWaiting != null) {
+                    ConditionMatchResult matchResult = tryParentConditionMatch(parentWaiting, responseJson);
+
+                    if (matchResult != null && !matchResult.isDefault) {
+                        // Valid (non-DEFAULT) match on parent — cancel any active sub-flow, advance parent
+                        log.info("FLOW_PARENT_MATCH execId={} condId={} — cancelling sub-flow and advancing parent",
+                                parentWaiting.getId(), matchResult.conditionId);
+                        cancelActiveSubFlows(parentWaiting.getId());
+                        handleWaitingExecution(parentWaiting, contact, client, responseJson);
+                        return;
+                    }
+                }
+
+                // If there's an active sub-flow waiting, route the message to it
+                if (subFlowWaiting != null) {
+                    log.info("FLOW_ROUTE_TO_SUBFLOW subFlowExecId={} parentExecId={} contactId={}",
+                            subFlowWaiting.getId(), subFlowWaiting.getParentExecutionId(), contactId);
+                    handleWaitingExecution(subFlowWaiting, contact, client, responseJson);
                     return;
                 }
 
-                log.info("FLOW_ACTIVE_SKIP execId={} status={} contactId={} — not resuming, not starting keyword flow",
-                        exec.getId(), exec.getStatus(), contactId);
+                // If parent is waiting but no non-DEFAULT match and no sub-flow,
+                // this means DEFAULT should trigger a sub-flow
+                if (parentWaiting != null) {
+                    log.info("FLOW_RESUME_WAITING execId={} flowId={} contactId={} currentNode={}",
+                            parentWaiting.getId(), parentWaiting.getFlow().getId(), contactId, parentWaiting.getCurrentNodeId());
+                    handleWaitingExecution(parentWaiting, contact, client, responseJson);
+                    return;
+                }
+
+                // Fallback: route to any waiting execution
+                for (FlowExecution e : activeExecs) {
+                    if (e.getStatus() == FlowExecution.ExecutionStatus.WAITING) {
+                        handleWaitingExecution(e, contact, client, responseJson);
+                        return;
+                    }
+                }
+
+                FlowExecution firstActive = activeExecs.get(0);
+                log.info("FLOW_ACTIVE_SKIP execId={} status={} contactId={} — not resuming",
+                        firstActive.getId(), firstActive.getStatus(), contactId);
                 return;
             }
 
@@ -492,22 +531,49 @@ public class FlowEngineService {
             }
         }
 
+        // Check if DEFAULT was matched (no non-DEFAULT condition matched)
+        boolean isDefaultMatch = (matchedConditionId == null && defaultConditionId != null);
+
         if (matchedConditionId == null && defaultConditionId != null) {
             matchedConditionId = defaultConditionId;
-            log.info("FLOW_CONDITION_FALLBACK execId={} nodeId={} — using DEFAULT condId={}", exec.getId(), nodeId, defaultConditionId);
+            log.info("FLOW_CONDITION_FALLBACK execId={} nodeId={} — DEFAULT triggered, will run as sub-flow", exec.getId(), nodeId, defaultConditionId);
         }
 
-        log.info("FLOW_CONDITION_RESULT execId={} nodeId={} matchedCondId={}",
-                exec.getId(), nodeId, matchedConditionId != null ? matchedConditionId : "NONE");
+        log.info("FLOW_CONDITION_RESULT execId={} nodeId={} matchedCondId={} isDefault={}",
+                exec.getId(), nodeId, matchedConditionId != null ? matchedConditionId : "NONE", isDefaultMatch);
 
         recordStep(exec.getId(), nodeId, "CONDITION",
                 FlowStepHistory.StepAction.CONDITION_EVALUATED, null, responseJson, matchedConditionId);
 
         if (matchedConditionId != null) {
             String nextNodeId = findNextNodeId(definition, nodeId, matchedConditionId);
-            log.info("FLOW_CONDITION_ROUTE execId={} condId={} → nextNode={}", exec.getId(), matchedConditionId, nextNodeId);
+            log.info("FLOW_CONDITION_ROUTE execId={} condId={} → nextNode={} isDefault={}",
+                    exec.getId(), matchedConditionId, nextNodeId, isDefaultMatch);
+
             if (nextNodeId != null) {
-                executeNode(exec, definition, nextNodeId, contact, client);
+                if (isDefaultMatch) {
+                    // DEFAULT condition: keep parent WAITING, start sub-flow
+                    log.info("FLOW_SUBFLOW_START execId={} — parent stays WAITING, starting sub-flow from node={}",
+                            exec.getId(), nextNodeId);
+
+                    // Revert parent back to WAITING at the WAIT_FOR_REPLY node before this CONDITION
+                    // so user can still respond with a valid option
+                    String waitNodeId = findWaitNodeBeforeCondition(definition, nodeId);
+                    if (waitNodeId != null) {
+                        exec.setCurrentNodeId(waitNodeId);
+                    }
+                    exec.setStatus(FlowExecution.ExecutionStatus.WAITING);
+                    flowExecutionRepository.save(exec);
+
+                    // Cancel any existing sub-flows for this parent
+                    cancelActiveSubFlows(exec.getId());
+
+                    // Create and execute sub-flow
+                    startSubFlow(exec, definition, nextNodeId, contact, client);
+                } else {
+                    // Non-DEFAULT: normal flow advancement
+                    executeNode(exec, definition, nextNodeId, contact, client);
+                }
             } else {
                 log.warn("FLOW_NO_EDGE_FOR_CONDITION execId={} condId={} — no edge found, completing", exec.getId(), matchedConditionId);
                 completeExecution(exec);
@@ -517,6 +583,157 @@ public class FlowEngineService {
                     exec.getId(), nodeId);
             completeExecution(exec);
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SUB-FLOW MANAGEMENT
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Result of trying to match a parent's condition node against a response.
+     */
+    private static class ConditionMatchResult {
+        String conditionId;
+        boolean isDefault;
+        ConditionMatchResult(String conditionId, boolean isDefault) {
+            this.conditionId = conditionId;
+            this.isDefault = isDefault;
+        }
+    }
+
+    /**
+     * Try to match the parent's CONDITION node against the incoming response
+     * WITHOUT advancing the execution. Returns the matched condition ID or null.
+     */
+    private ConditionMatchResult tryParentConditionMatch(FlowExecution parentExec, String responseJson) {
+        try {
+            Flow flow = parentExec.getFlow();
+            JsonNode definition = parseDefinition(flow.getDefinitionJson());
+            String waitNodeId = parentExec.getCurrentNodeId();
+
+            // Find the CONDITION node that follows the current WAIT node
+            String condNodeId = findNextNodeId(definition, waitNodeId, null);
+            if (condNodeId == null) return null;
+
+            JsonNode condNode = findNodeById(definition, condNodeId);
+            if (condNode == null || !"CONDITION".equals(condNode.path("type").asText())) return null;
+
+            JsonNode conditions = condNode.path("data").path("conditions");
+            String responseText = extractTextFromResponse(responseJson);
+            String responseId = extractIdFromResponse(responseJson);
+
+            String matchedId = null;
+            String defaultId = null;
+
+            if (conditions.isArray()) {
+                for (JsonNode cond : conditions) {
+                    String condId = cond.path("id").asText();
+                    String matchType = cond.path("matchType").asText("");
+                    String value = cond.path("value").asText("");
+
+                    if ("DEFAULT".equals(matchType)) {
+                        defaultId = condId;
+                        continue;
+                    }
+
+                    boolean matched = switch (matchType) {
+                        case "EXACT" -> responseText != null && responseText.equalsIgnoreCase(value);
+                        case "CONTAINS" -> responseText != null && responseText.toLowerCase().contains(value.toLowerCase());
+                        case "BUTTON_ID" -> value.equals(responseId);
+                        case "LIST_ID" -> value.equals(responseId);
+                        case "REGEX" -> {
+                            try {
+                                yield responseText != null && Pattern.compile(value, Pattern.CASE_INSENSITIVE)
+                                        .matcher(responseText).find();
+                            } catch (Exception e) {
+                                yield false;
+                            }
+                        }
+                        default -> false;
+                    };
+
+                    if (matched) {
+                        matchedId = condId;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedId != null) {
+                return new ConditionMatchResult(matchedId, false);
+            }
+            if (defaultId != null) {
+                return new ConditionMatchResult(defaultId, true);
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("FLOW_PARENT_MATCH_ERROR execId={} err={}", parentExec.getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Start a sub-flow execution from a specific node within the parent's flow definition.
+     * The sub-flow shares the same flow definition but runs as an independent execution.
+     */
+    private void startSubFlow(FlowExecution parentExec, JsonNode definition, String startNodeId,
+                              Contact contact, Client client) {
+        FlowExecution subExec = new FlowExecution();
+        subExec.setFlow(parentExec.getFlow());
+        subExec.setClientId(parentExec.getClientId());
+        subExec.setContactId(parentExec.getContactId());
+        subExec.setCampaignId(parentExec.getCampaignId());
+        subExec.setParentExecutionId(parentExec.getId());
+        subExec.setStatus(FlowExecution.ExecutionStatus.ACTIVE);
+        subExec.setCurrentNodeId(startNodeId);
+        flowExecutionRepository.save(subExec);
+
+        log.info("FLOW_SUBFLOW_CREATED subExecId={} parentExecId={} startNode={} contactId={}",
+                subExec.getId(), parentExec.getId(), startNodeId, contact.getId());
+
+        recordStep(subExec.getId(), startNodeId, "SUB_FLOW_START",
+                FlowStepHistory.StepAction.ENTERED, null, null, null);
+
+        // Execute the sub-flow starting from the target node
+        executeNode(subExec, definition, startNodeId, contact, client);
+    }
+
+    /**
+     * Cancel all active sub-flows for a parent execution.
+     */
+    private void cancelActiveSubFlows(UUID parentExecutionId) {
+        List<FlowExecution> subFlows = flowExecutionRepository.findActiveSubFlows(parentExecutionId);
+        for (FlowExecution sub : subFlows) {
+            log.info("FLOW_SUBFLOW_CANCEL subExecId={} parentExecId={} status={}",
+                    sub.getId(), parentExecutionId, sub.getStatus());
+            sub.setStatus(FlowExecution.ExecutionStatus.COMPLETED);
+            sub.setCompletedAt(OffsetDateTime.now());
+            flowExecutionRepository.save(sub);
+            recordStep(sub.getId(), sub.getCurrentNodeId(), "SUB_FLOW_CANCEL",
+                    FlowStepHistory.StepAction.COMPLETED, null, null, null);
+        }
+    }
+
+    /**
+     * Find the WAIT_FOR_REPLY node that feeds into a CONDITION node.
+     * Used to revert the parent execution back to the wait state.
+     */
+    private String findWaitNodeBeforeCondition(JsonNode definition, String conditionNodeId) {
+        JsonNode edges = definition.path("edges");
+        if (edges.isArray()) {
+            for (JsonNode edge : edges) {
+                if (conditionNodeId.equals(edge.path("target").asText())) {
+                    String sourceId = edge.path("source").asText(null);
+                    if (sourceId != null) {
+                        JsonNode sourceNode = findNodeById(definition, sourceId);
+                        if (sourceNode != null && "WAIT_FOR_REPLY".equals(sourceNode.path("type").asText())) {
+                            return sourceId;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private void completeExecution(FlowExecution exec) {

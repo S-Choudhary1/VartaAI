@@ -36,7 +36,15 @@ public interface FlowExecutionRepository extends JpaRepository<FlowExecution, UU
 
     List<FlowExecution> findByCampaignIdOrderByStartedAtAsc(UUID campaignId);
 
-    long countByFlow_IdAndClientIdAndStatus(UUID flowId, UUID clientId, FlowExecution.ExecutionStatus status);
+    @Query("SELECT e.status, COUNT(e) FROM FlowExecution e WHERE e.flow.id = :flowId " +
+           "AND e.clientId = :clientId GROUP BY e.status")
+    List<Object[]> countGroupedByStatus(@Param("flowId") UUID flowId, @Param("clientId") UUID clientId);
 
-    long countByFlow_IdAndClientId(UUID flowId, UUID clientId);
+    @Query("SELECT e FROM FlowExecution e WHERE e.parentExecutionId = :parentId " +
+           "AND e.status IN ('ACTIVE', 'WAITING')")
+    List<FlowExecution> findActiveSubFlows(@Param("parentId") UUID parentExecutionId);
+
+    @Query("SELECT e FROM FlowExecution e WHERE e.parentExecutionId = :parentId " +
+           "AND e.status IN ('ACTIVE', 'WAITING') ORDER BY e.startedAt DESC")
+    Optional<FlowExecution> findLatestActiveSubFlow(@Param("parentId") UUID parentExecutionId);
 }
