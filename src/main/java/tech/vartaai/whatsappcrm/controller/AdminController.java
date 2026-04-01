@@ -16,6 +16,7 @@ import tech.vartaai.whatsappcrm.service.AdminService;
 import tech.vartaai.whatsappcrm.service.ProvisioningService;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -68,6 +69,19 @@ public class AdminController {
         ClientDto dto = client.toDto();
         dto.setUnresolvedAlertCount(alertService.getUnresolvedCount(clientId));
         return ResponseEntity.ok(dto);
+    }
+
+    @PatchMapping("/clients/{clientId}/ai-chatbot")
+    public ResponseEntity<ClientDto> toggleAiChatbot(
+            @PathVariable UUID clientId,
+            @RequestBody Map<String, Boolean> body) {
+        boolean enabled = Boolean.TRUE.equals(body.get("enabled"));
+        log.info("ADMIN_TOGGLE_AI_CHATBOT clientId={} enabled={}", clientId, enabled);
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new RuntimeException("Client not found: " + clientId));
+        client.setAiChatbotEnabled(enabled);
+        clientRepository.save(client);
+        return ResponseEntity.ok(client.toDto());
     }
 
     @PostMapping("/clients/{clientId}/retry-provisioning")

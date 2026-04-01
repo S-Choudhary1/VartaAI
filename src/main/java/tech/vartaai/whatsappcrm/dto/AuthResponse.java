@@ -55,15 +55,17 @@ public class AuthResponse {
         private String username;
         private String role;
         private UUID clientId;
+        private boolean aiChatbotEnabled;
 
         public UserInfo() {
         }
 
-        public UserInfo(UUID id, String username, String role, UUID clientId) {
+        public UserInfo(UUID id, String username, String role, UUID clientId, boolean aiChatbotEnabled) {
             this.id = id;
             this.username = username;
             this.role = role;
             this.clientId = clientId;
+            this.aiChatbotEnabled = aiChatbotEnabled;
         }
 
         public UUID getId() {
@@ -96,6 +98,14 @@ public class AuthResponse {
 
         public void setClientId(UUID clientId) {
             this.clientId = clientId;
+        }
+
+        public boolean isAiChatbotEnabled() {
+            return aiChatbotEnabled;
+        }
+
+        public void setAiChatbotEnabled(boolean aiChatbotEnabled) {
+            this.aiChatbotEnabled = aiChatbotEnabled;
         }
     }
 }

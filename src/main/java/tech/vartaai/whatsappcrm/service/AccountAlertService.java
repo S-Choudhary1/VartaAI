@@ -2,6 +2,7 @@ package tech.vartaai.whatsappcrm.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -86,6 +87,11 @@ public class AccountAlertService {
         List<AccountAlert> alerts = alertRepository.findByClient_IdAndResolvedFalseOrderByCreatedAtDesc(clientId);
         alerts.forEach(a -> a.setResolved(true));
         alertRepository.saveAll(alerts);
+    }
+
+    @Transactional
+    public void deleteAlerts(UUID clientId) {
+        alertRepository.deleteAllByClient_Id(clientId);
     }
 
     private AccountAlertDto toDto(AccountAlert alert) {

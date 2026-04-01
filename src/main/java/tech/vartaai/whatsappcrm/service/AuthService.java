@@ -52,14 +52,17 @@ public class AuthService {
                 clientId
         );
 
+        boolean aiEnabled = user.getClient() != null && user.getClient().isAiChatbotEnabled();
+
         return new AuthResponse(
                 token,
                 expirationSeconds,
                 new AuthResponse.UserInfo(
-                    user.getId(), 
-                    user.getUsername(), 
+                    user.getId(),
+                    user.getUsername(),
                     user.getRole().name(),
-                    user.getClient() != null ? user.getClient().getId() : null
+                    user.getClient() != null ? user.getClient().getId() : null,
+                    aiEnabled
                 )
         );
     }

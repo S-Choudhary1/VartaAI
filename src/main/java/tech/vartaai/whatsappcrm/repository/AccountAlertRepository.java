@@ -20,4 +20,6 @@ public interface AccountAlertRepository extends JpaRepository<AccountAlert, UUID
     long countByClient_IdAndResolvedFalse(UUID clientId);
 
     List<AccountAlert> findByClient_IdAndCategoryOrderByCreatedAtDesc(UUID clientId, AlertCategory category);
+
+    void deleteAllByClient_Id(UUID clientId);
 }
