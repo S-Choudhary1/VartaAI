@@ -78,6 +78,9 @@ public class Client {
     @Column(name = "provisioning_error", length = 1000)
     private String provisioningError;
 
+    @Column(name = "ai_chatbot_enabled", nullable = false)
+    private boolean aiChatbotEnabled;
+
     @Column(name = "last_synced_at")
     private OffsetDateTime lastSyncedAt;
 
@@ -120,6 +123,7 @@ public class Client {
                 .accountReviewStatus(this.accountReviewStatus)
                 .billingStatus(this.billingStatus)
                 .provisioningError(this.provisioningError)
+                .aiChatbotEnabled(this.aiChatbotEnabled)
                 .tokenExpiresAt(this.tokenExpiresAt)
                 .lastSyncedAt(this.lastSyncedAt)
                 .createdAt(this.createdAt)

@@ -39,6 +39,7 @@ public class WebhookService {
     private final TemplateRepository templateRepository;
     private final FlowEngineService flowEngineService;
     private final AccountAlertService alertService;
+    private final AiChatbotService aiChatbotService;
 
     /** Statuses on messages field that indicate errors worth alerting on */
     private static final Set<String> ERROR_STATUSES = Set.of("failed");
@@ -50,7 +51,8 @@ public class WebhookService {
                           MessageRepository messageRepository,
                           TemplateRepository templateRepository,
                           FlowEngineService flowEngineService,
-                          AccountAlertService alertService) {
+                          AccountAlertService alertService,
+                          AiChatbotService aiChatbotService) {
         this.webhookEventRepository = webhookEventRepository;
         this.objectMapper = objectMapper;
         this.clientRepository = clientRepository;
@@ -59,6 +61,7 @@ public class WebhookService {
         this.templateRepository = templateRepository;
         this.flowEngineService = flowEngineService;
         this.alertService = alertService;
+        this.aiChatbotService = aiChatbotService;
     }
 
     @Transactional
@@ -423,15 +426,26 @@ public class WebhookService {
                     messageRepository.save(original);
                     log.info("WA_RESPONSE_ATTACHED originalMsgId={} replyMsgId={}", contextId, msgId);
 
-                    // Also process flow engine for replies
+                    // Route reply to AI chatbot or Flow engine
                     Contact replyContact = findOrCreateContact(from, contactName, client);
-                    log.info("FLOW_WEBHOOK_REPLY_TRIGGER contactId={} phone={} type={} contextMsgId={} replyMsgId={}",
-                            replyContact.getId(), from, type, contextId, msgId);
-                    try {
-                        flowEngineService.processIncomingMessage(replyContact, client, responseJson, msgId);
-                    } catch (Exception e) {
-                        log.error("FLOW_ENGINE_REPLY_ERROR msgId={} contactId={} err={}",
-                                msgId, replyContact.getId(), e.getMessage(), e);
+                    if (client.isAiChatbotEnabled()) {
+                        log.info("AI_WEBHOOK_REPLY_TRIGGER contactId={} phone={} msgId={}",
+                                replyContact.getId(), from, msgId);
+                        try {
+                            aiChatbotService.processIncomingMessage(client, replyContact, responseJson);
+                        } catch (Exception e) {
+                            log.error("AI_CHATBOT_REPLY_ERROR msgId={} contactId={} err={}",
+                                    msgId, replyContact.getId(), e.getMessage(), e);
+                        }
+                    } else {
+                        log.info("FLOW_WEBHOOK_REPLY_TRIGGER contactId={} phone={} type={} contextMsgId={} replyMsgId={}",
+                                replyContact.getId(), from, type, contextId, msgId);
+                        try {
+                            flowEngineService.processIncomingMessage(replyContact, client, responseJson, msgId);
+                        } catch (Exception e) {
+                            log.error("FLOW_ENGINE_REPLY_ERROR msgId={} contactId={} err={}",
+                                    msgId, replyContact.getId(), e.getMessage(), e);
+                        }
                     }
                     continue;
                 }
@@ -460,14 +474,26 @@ public class WebhookService {
 
             log.info("WA_MESSAGE_SAVED msgId={} dbId={}", msgId, m.getId());
 
-            log.info("FLOW_WEBHOOK_STANDALONE_TRIGGER contactId={} phone={} type={} msgId={}",
-                    contact.getId(), from, type, msgId);
-            try {
-                String responseJsonForFlow = buildUserResponseJson(type, msg);
-                flowEngineService.processIncomingMessage(contact, client, responseJsonForFlow, msgId);
-            } catch (Exception e) {
-                log.error("FLOW_ENGINE_WEBHOOK_ERROR msgId={} contactId={} err={}",
-                        msgId, contact.getId(), e.getMessage(), e);
+            // Route to AI chatbot or Flow engine based on client flag
+            String responseJsonForRouting = buildUserResponseJson(type, msg);
+            if (client.isAiChatbotEnabled()) {
+                log.info("AI_WEBHOOK_STANDALONE_TRIGGER contactId={} phone={} type={} msgId={}",
+                        contact.getId(), from, type, msgId);
+                try {
+                    aiChatbotService.processIncomingMessage(client, contact, responseJsonForRouting);
+                } catch (Exception e) {
+                    log.error("AI_CHATBOT_WEBHOOK_ERROR msgId={} contactId={} err={}",
+                            msgId, contact.getId(), e.getMessage(), e);
+                }
+            } else {
+                log.info("FLOW_WEBHOOK_STANDALONE_TRIGGER contactId={} phone={} type={} msgId={}",
+                        contact.getId(), from, type, msgId);
+                try {
+                    flowEngineService.processIncomingMessage(contact, client, responseJsonForRouting, msgId);
+                } catch (Exception e) {
+                    log.error("FLOW_ENGINE_WEBHOOK_ERROR msgId={} contactId={} err={}",
+                            msgId, contact.getId(), e.getMessage(), e);
+                }
             }
         }
     }

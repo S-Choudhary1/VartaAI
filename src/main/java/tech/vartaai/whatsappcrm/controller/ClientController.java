@@ -81,6 +81,7 @@ public class ClientController {
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<Void> deleteClient(@PathVariable UUID id) {
         if (clientRepository.existsById(id)) {
+            alertService.deleteAlerts(id);
             clientRepository.deleteById(id);
             return ResponseEntity.noContent().build();
         }

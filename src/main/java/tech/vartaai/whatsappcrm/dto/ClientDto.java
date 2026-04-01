@@ -26,6 +26,7 @@ public class ClientDto {
     private String accountReviewStatus;
     private String billingStatus;
     private String provisioningError;
+    private boolean aiChatbotEnabled;
     private OffsetDateTime tokenExpiresAt;
     private OffsetDateTime lastSyncedAt;
     private OffsetDateTime createdAt;

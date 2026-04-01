@@ -54,7 +54,7 @@ public class TokenRefreshRunner {
      * Runs every 24 hours. Syncs phone details and business profile
      * for all active (READY) clients.
      */
-    @Scheduled(fixedDelay = 86400000) // 24 hours
+//    @Scheduled(fixedDelay = 86400000) // 24 hours
     public void periodicDataSync() {
         List<Client> clients = clientRepository.findByOnboardingStatus(OnboardingStatus.READY);
         if (clients.isEmpty()) {

@@ -19,7 +19,7 @@ public class CorsConfig {
         config.setAllowedOriginPatterns(List.of("*"));
 
         config.setAllowedMethods(List.of(
-            "GET","POST","PUT","DELETE","OPTIONS"
+            "GET","POST","PUT","DELETE","OPTIONS","PATCH"
         ));
 
         config.setAllowedHeaders(List.of("*"));
